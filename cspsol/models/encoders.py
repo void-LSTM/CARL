@@ -461,6 +461,30 @@ class CSPEncoderModule(nn.Module):
             z_dim=self.z_dim,
             **tab_config
         )
+
+        fusion_cfg = configs.get('y_fusion', {})
+        self.enable_y_fusion = fusion_cfg.get('enabled', True)
+        self.force_mediator = fusion_cfg.get('force_mediator', False)
+        self.y_direct_scale = float(fusion_cfg.get('direct_scale', 0.5)) if self.enable_y_fusion else 1.0
+        dropout_rate = float(fusion_cfg.get('direct_dropout', 0.2)) if self.enable_y_fusion else 0.0
+        self.y_direct_dropout = nn.Dropout(dropout_rate) if dropout_rate > 0 else None
+        self.y_gate_beta = float(fusion_cfg.get('gate_sharpness', 2.0))
+        self.y_mediator_scale = float(fusion_cfg.get('mediator_scale', 1.0))
+
+        if self.enable_y_fusion:
+            self.mediator_to_y = nn.Sequential(
+                nn.Linear(self.z_dim, self.z_dim),
+                nn.ReLU(inplace=True),
+                nn.Linear(self.z_dim, self.z_dim)
+            )
+            self.y_fusion_gate = nn.Sequential(
+                nn.Linear(self.z_dim * 2, self.z_dim),
+                nn.ReLU(inplace=True),
+                nn.Linear(self.z_dim, self.z_dim)
+            )
+        else:
+            self.mediator_to_y = None
+            self.y_fusion_gate = None
         
         # Build M encoders based on scenario
         if self.scenario == 'IM':
@@ -530,7 +554,14 @@ class CSPEncoderModule(nn.Module):
         
         # Always encode T and Y
         representations['z_T'] = self.encoder_T(batch['T'])
-        representations['z_Y'] = self.encoder_Y(batch['Y_star'])
+        if self.enable_y_fusion and not getattr(self, '_fusion_debug_printed', False):
+            print(f"[Encoder] force_mediator={self.force_mediator} direct_scale={self.y_direct_scale}")
+            self._fusion_debug_printed = True
+        z_y_direct = self.encoder_Y(batch['Y_star'])
+        if self.y_direct_dropout is not None and self.training:
+            z_y_direct = self.y_direct_dropout(z_y_direct)
+        z_y_direct = z_y_direct * self.y_direct_scale
+        representations['z_Y_direct'] = z_y_direct
         
         # Handle M encoding based on scenario
         if self.scenario == 'IM':
@@ -556,6 +587,24 @@ class CSPEncoderModule(nn.Module):
 
         if self.scenario in ['IY', 'DUAL'] and 'I_Y' in batch and batch.get('I_Y') is not None:
             representations['z_I_Y'] = self.encoder_I_Y(batch['I_Y'])
+
+        if self.enable_y_fusion and 'z_M' in representations:
+            mediator_influence = self.y_mediator_scale * self.mediator_to_y(representations['z_M'])
+            if self.force_mediator:
+                z_y = mediator_influence
+                representations['y_gate'] = torch.ones_like(mediator_influence)
+            else:
+                gate_input = torch.cat([z_y_direct, representations['z_M']], dim=1)
+                gate_logits = self.y_fusion_gate(gate_input)
+                gate = torch.sigmoid(self.y_gate_beta * gate_logits)
+                z_y = (1 - gate) * z_y_direct + gate * mediator_influence
+                representations['y_gate'] = gate
+        else:
+            z_y = z_y_direct
+            if self.enable_y_fusion:
+                representations['y_gate'] = None
+
+        representations['z_Y'] = z_y
 
         return representations
     

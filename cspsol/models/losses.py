@@ -662,6 +662,32 @@ class LossIB(nn.Module):
         return self.beta * torch.mean(z ** 2)
 
 
+class LossDecorr(nn.Module):
+    """Squared correlation penalty to decorrelate two representations."""
+
+    def __init__(self, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+
+    def forward(self, z_a: torch.Tensor, z_b: torch.Tensor) -> torch.Tensor:
+        if z_a.dim() > 2:
+            z_a = z_a.view(z_a.size(0), -1)
+        if z_b.dim() > 2:
+            z_b = z_b.view(z_b.size(0), -1)
+
+        z_a = z_a - z_a.mean(dim=0, keepdim=True)
+        z_b = z_b - z_b.mean(dim=0, keepdim=True)
+
+        norm_a = torch.sqrt(torch.clamp((z_a ** 2).sum(dim=0, keepdim=True), min=self.eps))
+        norm_b = torch.sqrt(torch.clamp((z_b ** 2).sum(dim=0, keepdim=True), min=self.eps))
+
+        z_a_norm = z_a / norm_a
+        z_b_norm = z_b / norm_b
+
+        correlation = z_a_norm.t().matmul(z_b_norm) / (z_a.size(0) - 1 + self.eps)
+        return (correlation ** 2).mean()
+
+
 # Test the implementation
 if __name__ == "__main__":
     print("=== Testing CSP Loss Functions ===")

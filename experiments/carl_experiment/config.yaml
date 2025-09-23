@@ -42,12 +42,22 @@ model:
     hidden_dims:
     - 128
     - 64
+    y_fusion:
+      direct_dropout: 0.3
+      direct_scale: 0.0
+      enabled: true
+      force_mediator: true
+      gate_sharpness: 4.0
+      mediator_scale: 1.5
   feature_dims: null
   loss_config:
     align:
       enabled: true
       weight: 0.5
     ci:
+      enabled: true
+      weight: 1.0
+    decor:
       enabled: true
       weight: 1.0
     ib:
@@ -63,6 +73,10 @@ model:
       enabled: false
       weight: 0.1
   phase_config:
+    mediator_release_epoch: 5
+    mediator_release_settings:
+      direct_scale: 0.1
+      force_mediator: false
     warmup1_epochs: 20
     warmup1_losses:
     - mac

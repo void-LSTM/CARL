@@ -20,7 +20,7 @@ import warnings
 from collections import defaultdict
 
 from .encoders import CSPEncoderModule
-from .losses import LossCI, LossMBR, LossMAC, LossAlign, LossStyle, LossIB
+from .losses import LossCI, LossMBR, LossMAC, LossAlign, LossStyle, LossIB, LossDecorr
 from .gradnorm import MultiTaskBalancer
 from ..utils.grl import create_grl
 
@@ -113,14 +113,23 @@ class CausalAwareModel(nn.Module):
             'mac': {'enabled': True, 'max_pairs': 4096},
             'align': {'enabled': False, 'temperature': 0.07},
             'style': {'enabled': False, 'style_type': 'regression', 'num_styles': 1},
-            'ib': {'enabled': False, 'beta': 1e-4}
+            'ib': {'enabled': False, 'beta': 1e-4},
+            'decor': {'enabled': False, 'weight': 0.5}
         }
     
     def _get_default_encoder_config(self) -> Dict[str, Dict]:
         """Get default encoder configuration."""
         return {
             'tabular': {'hidden_dims': [128, 128], 'dropout': 0.1},
-            'image': {'architecture': 'small_cnn', 'dropout': 0.1}
+            'image': {'architecture': 'small_cnn', 'dropout': 0.1},
+            'y_fusion': {
+                'enabled': True,
+                'force_mediator': False,
+                'direct_scale': 0.5,
+                'direct_dropout': 0.2,
+                'gate_sharpness': 2.0,
+                'mediator_scale': 1.0
+            }
         }
     
     def _get_default_balancer_config(self) -> Dict[str, Any]:
@@ -190,13 +199,13 @@ class CausalAwareModel(nn.Module):
             },
             'warmup2': {
                 'epochs': [10, 20],
-                'enabled_losses': ['ci', 'mbr', 'mac', 'align'],
+                'enabled_losses': ['ci', 'mbr', 'mac', 'align', 'decor'],
                 'use_grl': False,
                 'use_vib': False
             },
             'full': {
                 'epochs': [20, float('inf')],
-                'enabled_losses': ['ci', 'mbr', 'mac', 'align', 'style', 'ib'],
+                'enabled_losses': ['ci', 'mbr', 'mac', 'align', 'style', 'ib', 'decor'],
                 'use_grl': True,
                 'use_vib': True
             }
@@ -279,6 +288,9 @@ class CausalAwareModel(nn.Module):
             self.losses['ib'] = LossIB(
                 beta=self.loss_config['ib']['beta']
             )
+
+        if self.loss_config['decor']['enabled']:
+            self.losses['decor'] = LossDecorr()
     
     def _build_balancer(self):
         """Build loss balancing module."""
@@ -485,6 +497,10 @@ class CausalAwareModel(nn.Module):
         else:
             if 'ci' in active_losses:
                 print(f"CI loss skipped: active={'ci' in active_losses}, z_T={z_T is not None}, z_M={z_M is not None}, y_target={y_target is not None}")
+
+        if 'decor' in active_losses and z_T is not None and z_Y is not None:
+            decor_weight = self.loss_config['decor'].get('weight', 1.0)
+            computed_losses['decor'] = decor_weight * self.losses['decor'](z_T, z_Y)
         # Balance losses if balancer is available
         # Balance losses if balancer is available (only during training)
         if self.balancer is not None and len(computed_losses) > 1 and self.training:

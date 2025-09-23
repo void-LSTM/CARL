@@ -43,7 +43,7 @@ def parse_arguments():
     parser.add_argument(
         '--config', '-c',
         type=str,
-        default='./cspsol/config/im_main.yaml',
+        default='experiments/carl_experiment/config.yaml',
         help='Path to YAML configuration file'
     )
     
@@ -249,14 +249,17 @@ def create_experiment_config(args):
         try:
             config = ExperimentConfig.load(args.config)
             print(f"Loaded configuration from: {args.config}")
+            config_loaded = True
         except Exception as e:
             print(f"Warning: Failed to load config from {args.config}: {e}")
-            print("Using default configuration instead")
+            print("Using preset configuration instead")
+            config_loaded = False
             config = config_manager.create_config(preset=args.preset)
     else:
         # Create config from preset
         config = config_manager.create_config(preset=args.preset)
         print(f"Created configuration from preset: {args.preset}")
+        config_loaded = False
     
     # Apply command line overrides with proper type conversion
     overrides = {}
@@ -302,6 +305,12 @@ def create_experiment_config(args):
     # Set device - ensure it's a string
     config.device = str(args.device)
     
+    if not config_loaded:
+        try:
+            config.save(args.config)
+        except Exception as e:
+            print(f"Warning: Could not save configuration to {args.config}: {e}")
+
     return config
 
 

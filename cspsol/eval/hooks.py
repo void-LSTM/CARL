@@ -391,7 +391,12 @@ class CSPMetricsComputer:
             Y = Y[:min_len]
 
             # Discretize for mutual information computation
-            discretizer = KBinsDiscretizer(n_bins=10, encode='ordinal', strategy='uniform')
+            discretizer = KBinsDiscretizer(
+                n_bins=10,
+                encode='ordinal',
+                strategy='uniform',
+                subsample=None
+            )
             
             # Ensure arrays have shape (n_samples, n_features)
             z_M = np.atleast_2d(z_M)
@@ -489,6 +494,7 @@ class CSPMetricsComputer:
         z_T = representations.get('z_T')
         z_M = representations.get('z_M')
         z_Y = representations.get('z_Y')
+        y_gate = representations.get('y_gate')
         Y_star = representations.get('Y_star')
         
         # Scenario-specific image representations and semantics
@@ -526,7 +532,13 @@ class CSPMetricsComputer:
         # Compute MAC if we have required data
         if z_img is not None and a_semantic is not None:
             metrics['MAC'] = self.compute_mac(z_img, a_semantic)
-        
+
+        if isinstance(y_gate, np.ndarray) and y_gate.size > 0:
+            metrics['Y_GATE'] = {
+                'mean': float(np.mean(y_gate)),
+                'std': float(np.std(y_gate))
+            }
+
         return metrics
 
 

@@ -22,6 +22,10 @@ from collections import defaultdict
 import numpy as np
 from pathlib import Path
 import json
+import sys
+from tqdm.auto import tqdm
+import sys
+from tqdm.auto import tqdm
 from cspsol.train.sched import AdaptiveLRScheduler
 from ..eval.hooks import RepresentationExtractor, CSPMetricsComputer
 from ..models.carl import CausalAwareModel
@@ -295,8 +299,13 @@ class CSPTrainer:
         # Get data loader
         train_loader = self.datamodule.train_dataloader()
         
+        disable_tqdm = not sys.stdout.isatty()
+        train_pbar = tqdm(enumerate(train_loader), total=len(train_loader),
+                          desc=f"Epoch {epoch} [train]", leave=False,
+                          dynamic_ncols=True, disable=disable_tqdm)
+
         # Training loop
-        for batch_idx, batch in enumerate(train_loader):
+        for batch_idx, batch in train_pbar:
             # Zero gradients
             if batch_idx % self.accumulate_grad_batches == 0:
                 self.optimizer.zero_grad()
@@ -336,21 +345,20 @@ class CSPTrainer:
                 # Log progress
                 if batch_idx % self.training_config['log_every_n_steps'] == 0:
                     current_lr = self.optimizer.param_groups[0]['lr']
-                    print(f"Epoch {epoch:3d} | Batch {batch_idx:4d}/{len(train_loader):4d} | "
-                          f"Loss: {loss.item()*self.accumulate_grad_batches:.4f} | LR: {current_lr:.2e}")
-                    
-                    # Log model statistics
-                    if hasattr(self.model, 'get_statistics'):
-                        stats = self.model.get_statistics()
-                        if 'loss_weights' in outputs:
-                            weights_str = ", ".join([f"{k}={v:.3f}" for k, v in outputs['loss_weights'].items()])
-                            print(f"         Loss weights: {weights_str}")
-            
+                    display_loss = loss.detach().item() * self.accumulate_grad_batches
+                    postfix = {'loss': f"{display_loss:.4f}", 'lr': f"{current_lr:.2e}"}
+                    if 'loss_weights' in outputs:
+                        for name, value in outputs['loss_weights'].items():
+                            postfix[f'w_{name}'] = f"{float(value):.3f}"
+                    train_pbar.set_postfix(postfix, refresh=False)
+
             except Exception as e:
-                print(f"Error in training step {batch_idx}: {e}")
+                train_pbar.write(f"Error in training step {batch_idx}: {e}")
                 import traceback
                 traceback.print_exc()
                 continue
+
+        train_pbar.close()
         
         # Compute epoch averages
         epoch_avg = {}
@@ -377,7 +385,11 @@ class CSPTrainer:
         val_loader = self.datamodule.val_dataloader()
         
         with torch.no_grad():
-            for batch_idx, batch in enumerate(val_loader):
+            disable_tqdm = not sys.stdout.isatty()
+            val_pbar = tqdm(enumerate(val_loader), total=len(val_loader),
+                            desc=f"Epoch {epoch} [val]", leave=False,
+                            dynamic_ncols=True, disable=disable_tqdm)
+            for batch_idx, batch in val_pbar:
                 try:
                     # Forward pass
                     outputs = self._forward_step(batch, epoch)
@@ -387,10 +399,17 @@ class CSPTrainer:
                         if torch.is_tensor(value) and value.dim() == 0:
                             # Detach from computation graph to avoid gradient issues
                             epoch_metrics[f'val_{key}'].append(value.detach().item())
-                
+
+                    if (batch_idx % self.training_config['log_every_n_steps'] == 0 and
+                            epoch_metrics.get('val_total_loss')):
+                        postfix = {'loss': f"{np.mean(epoch_metrics['val_total_loss']):.4f}"}
+                        val_pbar.set_postfix(postfix, refresh=False)
+
                 except Exception as e:
-                    print(f"Error in validation step {batch_idx}: {e}")
+                    val_pbar.write(f"Error in validation step {batch_idx}: {e}")
                     continue
+
+            val_pbar.close()
         
         # Compute epoch averages
         epoch_avg = {}
@@ -405,18 +424,28 @@ class CSPTrainer:
         try:
             val_loader = self.datamodule.val_dataloader()
             extractor = RepresentationExtractor(self.model, self.device)
-            representations = extractor.extract_representations(val_loader)
+            representations = extractor.extract_representations(
+                val_loader,
+                representation_types=['z_T', 'z_M', 'z_Y', 'z_Y_direct', 'y_gate']
+            )
             metrics_computer = CSPMetricsComputer(self.model.scenario)
             metrics = metrics_computer.compute_all_metrics(representations)
             results = {}
             if 'CIP' in metrics:
                 results['CIP'] = metrics['CIP'].get('cip_score')
             if 'CSI' in metrics:
-                results['CSI'] = metrics['CSI'].get('csi_score')
+                csi_metrics = metrics['CSI']
+                results['CSI'] = csi_metrics.get('csi_score')
+                for key in ['structure_preference', 'r2_mediated', 'r2_direct', 'r2_m_only']:
+                    if csi_metrics.get(key) is not None:
+                        results[f'CSI_{key}'] = csi_metrics.get(key)
             if 'MBRI' in metrics:
                 results['MBRI'] = metrics['MBRI'].get('mbri_score')
             if 'MAC' in metrics:
                 results['MAC'] = metrics['MAC'].get('mac_score')
+            if 'Y_GATE' in metrics:
+                results['Y_GATE_MEAN'] = metrics['Y_GATE'].get('mean')
+                results['Y_GATE_STD'] = metrics['Y_GATE'].get('std')
             return results
         except Exception as e:
             print(f"Error computing structural metrics: {e}")
@@ -586,6 +615,13 @@ class CSPTrainer:
                         MAC=struct_metrics.get('MAC', float('nan')),
                     )
                 )
+                csi_delta = struct_metrics.get('CSI_structure_preference')
+                if csi_delta is not None:
+                    print(f"  CSI Δ (r2_mediated - r2_direct): {csi_delta:.6f}")
+                gate_mean = struct_metrics.get('Y_GATE_MEAN')
+                gate_std = struct_metrics.get('Y_GATE_STD')
+                if gate_mean is not None and gate_std is not None:
+                    print(f"  y_gate mean={gate_mean:.4f} std={gate_std:.4f}")
             print(f"Best metric: {self.best_metric:.4f} (patience: {self.patience_counter}/{self.early_stopping_patience})")
             
             # Early stopping
