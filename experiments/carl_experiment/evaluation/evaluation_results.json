@@ -3,25 +3,29 @@
   "metrics": {
     "CIP": {
       "cip_score": 1.0,
-      "p_value": 0.7590542921089571,
-      "correlation": 0.013750833555116002,
+      "p_value": 0.7390654066919528,
+      "correlation": 0.014932837894016787,
       "n_samples": 500
     },
     "CSI": {
-      "csi_score": 8.37536915218398e-08,
-      "r2_mediated": 0.003142503792217477,
-      "r2_direct": 0.0031425035290203462,
-      "structure_preference": 2.631971307565095e-10
+      "csi_score": 0.0003922490733510963,
+      "r2_mediated": 0.41049819401892945,
+      "r2_direct": 0.41033717648271323,
+      "structure_preference": 0.0001610175362162236,
+      "features_T": 64,
+      "features_M": 64,
+      "features_Y": 64,
+      "n_samples": 500
     },
     "MBRI": {
-      "mbri_score": 0.0,
-      "mi_m_y": 0.0,
-      "mi_t_y": 0.0,
-      "boundary_strength": 0.0
+      "mbri_score": 0.7909303841518105,
+      "mi_m_y": 0.9373776327654455,
+      "mi_t_y": 0.2477805602168363,
+      "boundary_strength": 3.7830957929636413
     },
     "MAC": {
-      "mac_score": 0.934034079392103,
-      "correlation": 0.934034079392103,
+      "mac_score": 0.9339608656274665,
+      "correlation": 0.9339608656274665,
       "p_value": 0.0,
       "n_pairs": 124750
     }
@@ -29,23 +33,23 @@
   "summary": {
     "main_scores": {
       "CIP": 1.0,
-      "CSI": 8.37536915218398e-08,
-      "MBRI": 0.0,
-      "MAC": 0.934034079392103
+      "CSI": 0.0003922490733510963,
+      "MBRI": 0.7909303841518105,
+      "MAC": 0.9339608656274665
     },
-    "overall_score": 0.48350854078644867,
+    "overall_score": 0.6813208747131569,
     "representation_quality": {
       "z_T": {
-        "mean_norm": 4.853833198547363,
-        "std_norm": 2.701957941055298,
-        "mean_activation": 0.004935062024742365,
-        "std_activation": 0.6943827271461487
+        "mean_norm": 4.855740070343018,
+        "std_norm": 2.700221300125122,
+        "mean_activation": 0.005213788710534573,
+        "std_activation": 0.6944834589958191
       },
       "z_M": {
-        "mean_norm": 2.222378730773926,
-        "std_norm": 0.6148436665534973,
-        "mean_activation": -0.010450619272887707,
-        "std_activation": 0.28804323077201843
+        "mean_norm": 2.2223873138427734,
+        "std_norm": 0.6151184439659119,
+        "mean_activation": -0.010461942292749882,
+        "std_activation": 0.2880530059337616
       },
       "z_Y": {
         "mean_norm": 5.492611885070801,

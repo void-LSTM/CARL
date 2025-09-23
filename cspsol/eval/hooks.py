@@ -265,6 +265,16 @@ class CSPMetricsComputer:
             print(f"Warning: CIP computation failed: {e}")
             return {'cip_score': 0.0, 'p_value': 1.0, 'correlation': 0.0, 'n_samples': 0}
     
+    def _ensure_2d(self, array: np.ndarray) -> np.ndarray:
+        """Convert arbitrary shaped array into (n_samples, n_features)."""
+        arr = np.asarray(array)
+        if arr.ndim == 1:
+            return arr.reshape(-1, 1)
+        if arr.ndim > 2:
+            # Flatten feature dimensions but keep sample axis intact
+            return arr.reshape(arr.shape[0], -1)
+        return arr
+
     def compute_csi(self, 
                     z_T: np.ndarray, 
                     z_M: np.ndarray, 
@@ -285,33 +295,62 @@ class CSPMetricsComputer:
             # Mock implementation - replace with actual CSPBench call
             from sklearn.linear_model import LinearRegression
             from sklearn.metrics import r2_score
-            
+
+            z_T_2d = self._ensure_2d(z_T)
+            z_M_2d = self._ensure_2d(z_M)
+            z_Y_2d = self._ensure_2d(z_Y)
+
+            n_samples = min(z_T_2d.shape[0], z_M_2d.shape[0], z_Y_2d.shape[0])
+            if n_samples < 2:
+                raise ValueError("CSI requires at least two samples")
+
+            if not (z_T_2d.shape[0] == z_M_2d.shape[0] == z_Y_2d.shape[0]):
+                warnings.warn(
+                    "CSI inputs have inconsistent lengths; trimming to matched samples"
+                )
+                z_T_2d = z_T_2d[:n_samples]
+                z_M_2d = z_M_2d[:n_samples]
+                z_Y_2d = z_Y_2d[:n_samples]
+
             # Test causal chain: T → M → Y vs alternatives
-            
+
             # Model 1: T → M → Y (correct structure)
-            reg_tm = LinearRegression().fit(z_T.reshape(-1, 1), z_M.reshape(-1, 1))
-            pred_M = reg_tm.predict(z_T.reshape(-1, 1))
-            
-            reg_my = LinearRegression().fit(pred_M, z_Y.reshape(-1, 1))
+            reg_tm = LinearRegression().fit(z_T_2d, z_M_2d)
+            pred_M = reg_tm.predict(z_T_2d)
+
+            reg_my = LinearRegression().fit(pred_M, z_Y_2d)
             final_pred_Y = reg_my.predict(pred_M)
-            
-            r2_correct = r2_score(z_Y.flatten(), final_pred_Y.flatten())
-            
+
+            r2_correct = r2_score(z_Y_2d, final_pred_Y, multioutput='variance_weighted')
+
             # Model 2: Direct T → Y (incorrect structure)
-            reg_ty = LinearRegression().fit(z_T.reshape(-1, 1), z_Y.reshape(-1, 1))
-            direct_pred_Y = reg_ty.predict(z_T.reshape(-1, 1))
-            
-            r2_direct = r2_score(z_Y.flatten(), direct_pred_Y.flatten())
-            
-            # CSI score: preference for correct structure
-            csi_score = max(0, (r2_correct - r2_direct) / (r2_correct + 1e-8))
-            
-            return {
-                'csi_score': min(1.0, csi_score),
-                'r2_mediated': r2_correct,
-                'r2_direct': r2_direct,
-                'structure_preference': r2_correct - r2_direct
+            reg_ty = LinearRegression().fit(z_T_2d, z_Y_2d)
+            direct_pred_Y = reg_ty.predict(z_T_2d)
+
+            r2_direct = r2_score(z_Y_2d, direct_pred_Y, multioutput='variance_weighted')
+
+            # CSI score: preference for correct structure. Guard against degenerate R²
+            denom = np.clip(abs(r2_correct), a_min=1e-8, a_max=None)
+            csi_raw = (r2_correct - r2_direct) / denom
+            csi_score = float(np.clip(csi_raw, 0.0, 1.0))
+
+            diagnostics = {
+                'csi_score': csi_score,
+                'r2_mediated': float(r2_correct),
+                'r2_direct': float(r2_direct),
+                'structure_preference': float(r2_correct - r2_direct),
+                'features_T': z_T_2d.shape[1],
+                'features_M': z_M_2d.shape[1],
+                'features_Y': z_Y_2d.shape[1],
+                'n_samples': int(n_samples)
             }
+
+            if csi_score == 0.0 and r2_correct <= r2_direct:
+                diagnostics['reason'] = (
+                    'mediated path underperforms direct path in current linear diagnostic'
+                )
+
+            return diagnostics
             
         except Exception as e:
             print(f"Warning: CSI computation failed: {e}")
