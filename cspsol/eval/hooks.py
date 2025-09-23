@@ -280,6 +280,85 @@ class CSPMetricsComputer:
             return arr.reshape(arr.shape[0], -1)
         return arr
 
+    def _align_lengths(self, *arrays: np.ndarray) -> List[np.ndarray]:
+        """Trim input arrays so they share the same number of samples."""
+        valid_arrays = [np.asarray(a) for a in arrays if a is not None]
+        if not valid_arrays:
+            return []
+        min_len = min(arr.shape[0] for arr in valid_arrays)
+        return [arr[:min_len] for arr in valid_arrays]
+
+    def _digitize_1d(self, values: np.ndarray, max_bins: int = 16) -> np.ndarray:
+        """Discretize continuous values into ordinal bins for MI/entropy calculations."""
+        arr = np.asarray(values).reshape(-1)
+        if arr.size == 0 or np.allclose(arr, arr[0]):
+            return np.zeros(arr.size, dtype=int)
+
+        # Use sqrt-based heuristic to keep bins reasonable for small samples
+        n_bins = int(np.clip(np.sqrt(arr.size), 2, max_bins))
+        try:
+            hist_edges = np.histogram(arr, bins=n_bins)[1]
+        except Exception:
+            return np.zeros(arr.size, dtype=int)
+
+        thresholds = hist_edges[1:-1]
+        if thresholds.size == 0:
+            return np.zeros(arr.size, dtype=int)
+
+        digitized = np.digitize(arr, thresholds, right=False)
+        # Ensure labels start at zero
+        if digitized.size:
+            digitized -= digitized.min()
+        return digitized.astype(int)
+
+    def _discrete_entropy(self, labels: np.ndarray) -> float:
+        """Compute entropy of discrete labels (natural log)."""
+        labels = np.asarray(labels, dtype=int)
+        if labels.size == 0:
+            return 0.0
+        counts = np.bincount(labels)
+        probs = counts[counts > 0].astype(np.float64)
+        probs /= probs.sum()
+        return float(-np.sum(probs * np.log(probs + 1e-12)))
+
+    def _average_mutual_information(self,
+                                    features: np.ndarray,
+                                    target: np.ndarray,
+                                    max_bins: int = 16) -> Tuple[float, float]:
+        """Estimate MI between multivariate features and scalar target via discretization."""
+        if features is None or target is None:
+            return 0.0, 0.0
+
+        aligned = self._align_lengths(features, np.asarray(target).reshape(-1))
+        if len(aligned) != 2:
+            return 0.0, 0.0
+        feats, tgt = aligned
+
+        feats_2d = self._ensure_2d(feats)
+        tgt_1d = np.asarray(tgt).reshape(-1)
+
+        if tgt_1d.size < 5:
+            return 0.0, 0.0
+
+        tgt_disc = self._digitize_1d(tgt_1d, max_bins)
+        h_tgt = self._discrete_entropy(tgt_disc)
+        if h_tgt <= 1e-8:
+            return 0.0, h_tgt
+
+        from sklearn.metrics import mutual_info_score
+
+        mi_values = []
+        for dim in range(feats_2d.shape[1]):
+            feat_disc = self._digitize_1d(feats_2d[:, dim], max_bins)
+            if np.unique(feat_disc).size < 2:
+                continue
+            mi_values.append(mutual_info_score(feat_disc, tgt_disc))
+
+        if not mi_values:
+            return 0.0, h_tgt
+
+        return float(np.mean(mi_values)), h_tgt
+
     def compute_csi(self, 
                     z_T: np.ndarray, 
                     z_M: np.ndarray, 
@@ -632,7 +711,161 @@ class CSPMetricsComputer:
         except Exception as e:
             print(f"Warning: MAC computation failed: {e}")
             return {'mac_score': 0.0, 'correlation': 0.0, 'p_value': 1.0, 'n_pairs': 0}
-    
+
+    def compute_ric(self,
+                    z_T: Optional[np.ndarray],
+                    z_M: Optional[np.ndarray],
+                    z_Y: Optional[np.ndarray],
+                    T: Optional[np.ndarray],
+                    M: Optional[np.ndarray],
+                    Y: Optional[np.ndarray]) -> Dict[str, float]:
+        """Compute Representation Information Content (RIC) for each causal node."""
+        metrics = {}
+
+        def add_component(name: str,
+                          rep: Optional[np.ndarray],
+                          raw: Optional[np.ndarray]) -> None:
+            mi, entropy_val = self._average_mutual_information(rep, raw)
+            if entropy_val <= 0.0:
+                return
+            metrics[name] = float(np.clip(mi / (entropy_val + 1e-8), 0.0, 1.0))
+            metrics[f'mi_{name}'] = float(mi)
+            metrics[f'h_{name}'] = float(entropy_val)
+
+        add_component('treatment', z_T, T)
+        add_component('mediator', z_M, M)
+        add_component('outcome', z_Y, Y)
+
+        components = [metrics.get(name) for name in ('treatment', 'mediator', 'outcome') if name in metrics]
+        if components:
+            metrics['ric_score'] = float(np.mean(components))
+            metrics['ric_components'] = len(components)
+
+        return metrics
+
+    def compute_psr(self,
+                    T: Optional[np.ndarray],
+                    M: Optional[np.ndarray],
+                    Y: Optional[np.ndarray]) -> Dict[str, float]:
+        """Compute Path Strength Ratio (PSR) measuring mediated vs direct information flow."""
+        if T is None or M is None or Y is None:
+            return {}
+
+        aligned = self._align_lengths(np.asarray(T).reshape(-1),
+                                      np.asarray(M).reshape(-1),
+                                      np.asarray(Y).reshape(-1))
+        if len(aligned) != 3:
+            return {}
+        T_vals, M_vals, Y_vals = aligned
+        if T_vals.size < 5:
+            return {}
+
+        T_disc = self._digitize_1d(T_vals)
+        M_disc = self._digitize_1d(M_vals)
+        Y_disc = self._digitize_1d(Y_vals)
+
+        if np.unique(T_disc).size < 2 or np.unique(M_disc).size < 2 or np.unique(Y_disc).size < 2:
+            return {}
+
+        def joint_entropy(*arrays: np.ndarray) -> float:
+            stacked = np.stack(arrays, axis=1)
+            unique_rows, counts = np.unique(stacked, axis=0, return_counts=True)
+            probs = counts.astype(np.float64)
+            probs /= probs.sum()
+            return float(-np.sum(probs * np.log(probs + 1e-12)))
+
+        H_T = self._discrete_entropy(T_disc)
+        H_M = self._discrete_entropy(M_disc)
+        H_Y = self._discrete_entropy(Y_disc)
+        H_TM = joint_entropy(T_disc, M_disc)
+        H_TY = joint_entropy(T_disc, Y_disc)
+        H_MY = joint_entropy(M_disc, Y_disc)
+        H_TMY = joint_entropy(T_disc, M_disc, Y_disc)
+
+        I_TY = H_T + H_Y - H_TY
+        interaction = H_T + H_M + H_Y - H_TM - H_TY - H_MY + H_TMY
+
+        psr_score = float(interaction / max(I_TY, 1e-8))
+
+        return {
+            'psr_score': psr_score,
+            'interaction_information': float(interaction),
+            'mi_t_y': float(I_TY),
+            'h_t': float(H_T),
+            'h_m': float(H_M),
+            'h_y': float(H_Y)
+        }
+
+    def compute_mni(self,
+                    z_T: Optional[np.ndarray],
+                    z_M: Optional[np.ndarray],
+                    z_Y: Optional[np.ndarray]) -> Dict[str, float]:
+        """Compute Mediator Necessity Index (MNI)."""
+        if z_T is None or z_M is None or z_Y is None:
+            return {}
+
+        aligned = self._align_lengths(self._ensure_2d(z_T),
+                                      self._ensure_2d(z_M),
+                                      self._ensure_2d(z_Y))
+        if len(aligned) != 3:
+            return {}
+
+        z_T_aligned, z_M_aligned, z_Y_aligned = aligned
+        if z_T_aligned.shape[0] < 10:
+            return {}
+
+        from sklearn.feature_selection import mutual_info_regression
+
+        def multi_mutual_info(features: np.ndarray, targets: np.ndarray) -> float:
+            feats = self._ensure_2d(features)
+            targs = self._ensure_2d(targets)
+            mi_values = []
+            for col in range(targs.shape[1]):
+                y_col = targs[:, col]
+                if np.allclose(y_col, y_col[0]):
+                    continue
+                try:
+                    mi_per_feature = mutual_info_regression(
+                        feats,
+                        y_col,
+                        discrete_features=False,
+                        random_state=int(self.rng.integers(1 << 31))
+                    )
+                except Exception:
+                    continue
+                if mi_per_feature.size == 0:
+                    continue
+                finite_vals = np.asarray(mi_per_feature, dtype=np.float64)
+                finite_vals = finite_vals[np.isfinite(finite_vals)]
+                if finite_vals.size == 0:
+                    continue
+                mi_values.append(float(np.mean(finite_vals)))
+            if not mi_values:
+                return 0.0
+            return float(np.mean(mi_values))
+
+        mi_total = multi_mutual_info(z_T_aligned, z_Y_aligned)
+        if mi_total <= 1e-8:
+            return {
+                'mni_score': 0.0,
+                'mi_total': float(mi_total),
+                'mi_conditional': 0.0
+            }
+
+        mi_joint = multi_mutual_info(np.concatenate([z_T_aligned, z_M_aligned], axis=1), z_Y_aligned)
+        mi_mediator = multi_mutual_info(z_M_aligned, z_Y_aligned)
+        mi_conditional = max(mi_joint - mi_mediator, 0.0)
+
+        mni_score = float(np.clip(1.0 - mi_conditional / max(mi_total, 1e-8), 0.0, 1.0))
+
+        return {
+            'mni_score': mni_score,
+            'mi_total': float(mi_total),
+            'mi_conditional': float(mi_conditional),
+            'mi_joint': float(mi_joint),
+            'mi_mediator': float(mi_mediator)
+        }
+
     def compute_all_metrics(self, representations: Dict[str, np.ndarray]) -> Dict[str, Dict[str, float]]:
         """
         Compute all CSP metrics for given representations.
@@ -651,7 +884,9 @@ class CSPMetricsComputer:
         z_Y = representations.get('z_Y')
         y_gate = representations.get('y_gate')
         Y_star = representations.get('Y_star')
-        
+        T_obs = representations.get('T')
+        M_obs = representations.get('M')
+
         # Scenario-specific image representations and semantics
         if self.scenario == 'IM':
             z_img = z_M  # In IM, z_M comes from image
@@ -670,7 +905,7 @@ class CSPMetricsComputer:
         # Compute CSI if we have required data
         if z_T is not None and z_M is not None and z_Y is not None:
             metrics['CSI'] = self.compute_csi(z_T, z_M, z_Y)
-        
+
         # Compute MBRI if we have required data
         if z_M is not None and z_T is not None and Y_star is not None:
             # Align array lengths to avoid sample mismatch
@@ -683,10 +918,25 @@ class CSPMetricsComputer:
             z_T_aligned = z_T[:min_len]
             Y_aligned = Y_star[:min_len]
             metrics['MBRI'] = self.compute_mbri(z_M_aligned, z_T_aligned, Y_aligned)
-        
+
         # Compute MAC if we have required data
         if z_img is not None and a_semantic is not None:
             metrics['MAC'] = self.compute_mac(z_img, a_semantic)
+
+        # Compute RIC if representations and raw variables are available
+        ric_metrics = self.compute_ric(z_T, z_M, z_Y, T_obs, M_obs, Y_star)
+        if ric_metrics:
+            metrics['RIC'] = ric_metrics
+
+        # Compute PSR using observed T, M, and Y
+        psr_metrics = self.compute_psr(T_obs, M_obs, Y_star)
+        if psr_metrics:
+            metrics['PSR'] = psr_metrics
+
+        # Compute MNI if full set of representations exists
+        mni_metrics = self.compute_mni(z_T, z_M, z_Y)
+        if mni_metrics:
+            metrics['MNI'] = mni_metrics
 
         if isinstance(y_gate, np.ndarray) and y_gate.size > 0:
             metrics['Y_GATE'] = {
@@ -973,10 +1223,15 @@ if __name__ == "__main__":
         
         # Test all metrics together
         test_representations = {
-            'z_T': z_T, 'z_M': z_M, 'z_Y': z_Y,
-            'Y_star': Y_star, 'a_M': a_semantic
+            'z_T': z_T,
+            'z_M': z_M,
+            'z_Y': z_Y,
+            'Y_star': Y_star,
+            'a_M': a_semantic,
+            'T': np.random.randn(n_samples),
+            'M': np.random.randn(n_samples)
         }
-        
+
         all_metrics = metrics_computer.compute_all_metrics(test_representations)
         print(f"All metrics computed: {list(all_metrics.keys())}")
         

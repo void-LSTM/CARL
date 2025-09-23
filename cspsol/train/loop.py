@@ -80,7 +80,13 @@ class CSPTrainer:
         self.training_config = self._get_default_training_config()
         if training_config:
             self.training_config.update(training_config)
-        
+            if 'early_stopping_metric' in training_config and 'early_stopping_mode' not in training_config:
+                metric_name = str(training_config['early_stopping_metric'])
+                if metric_name.endswith('loss'):
+                    self.training_config['early_stopping_mode'] = 'min'
+                else:
+                    self.training_config['early_stopping_mode'] = 'max'
+
         # Setup output directory
         self.output_dir = Path(output_dir) if output_dir else Path('./outputs')
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -89,11 +95,15 @@ class CSPTrainer:
         self._setup_optimizer()
         self._setup_scheduler()
         self._setup_training()
-        
+
         # Training state
         self.current_epoch = 0
         self.current_step = 0
-        self.best_metric = float('inf')
+        self.best_metric = (
+            float('-inf')
+            if self.training_config.get('early_stopping_mode', 'max') == 'max'
+            else float('inf')
+        )
         self.train_metrics = defaultdict(list)
         self.val_metrics = defaultdict(list)
         
@@ -136,8 +146,8 @@ class CSPTrainer:
             'log_every_n_steps': 50,
             'save_every_n_epochs': 10,
             'early_stopping_patience': 15,
-            'early_stopping_metric': 'val_total_loss',
-            'early_stopping_mode': 'min',
+            'early_stopping_metric': 'val_struct_score',
+            'early_stopping_mode': 'max',
             'skip_backward_on_no_grad': False
         }
     
@@ -482,8 +492,10 @@ class CSPTrainer:
             metrics_computer = CSPMetricsComputer(self.model.scenario)
             metrics = metrics_computer.compute_all_metrics(representations)
             results = {}
+
             if 'CIP' in metrics:
                 results['CIP'] = metrics['CIP'].get('cip_score')
+
             if 'CSI' in metrics:
                 csi_metrics = metrics['CSI']
                 results['CSI'] = csi_metrics.get('csi_score')
@@ -494,15 +506,56 @@ class CSPTrainer:
                     'r2_mediated_linear', 'r2_direct_linear', 'r2_m_only_linear', 'r2_perm_linear'
                 ]
                 for key in extra_keys:
-                    if csi_metrics.get(key) is not None:
-                        results[f'CSI_{key}'] = csi_metrics.get(key)
+                    value = csi_metrics.get(key)
+                    if value is not None:
+                        results[f'CSI_{key}'] = value
+
             if 'MBRI' in metrics:
                 results['MBRI'] = metrics['MBRI'].get('mbri_score')
+
             if 'MAC' in metrics:
                 results['MAC'] = metrics['MAC'].get('mac_score')
+
+            if 'RIC' in metrics:
+                ric_metrics = metrics['RIC']
+                results['RIC_score'] = ric_metrics.get('ric_score')
+                for component in ('treatment', 'mediator', 'outcome'):
+                    comp_value = ric_metrics.get(component)
+                    if comp_value is not None:
+                        results[f'RIC_{component}'] = comp_value
+                if ric_metrics.get('ric_components') is not None:
+                    results['RIC_components'] = ric_metrics.get('ric_components')
+
+            if 'PSR' in metrics:
+                psr_metrics = metrics['PSR']
+                results['PSR'] = psr_metrics.get('psr_score')
+                if psr_metrics.get('interaction_information') is not None:
+                    results['PSR_interaction'] = psr_metrics.get('interaction_information')
+
+            if 'MNI' in metrics:
+                mni_metrics = metrics['MNI']
+                results['MNI'] = mni_metrics.get('mni_score')
+                if mni_metrics.get('mi_conditional') is not None:
+                    results['MNI_conditional'] = mni_metrics.get('mi_conditional')
+
             if 'Y_GATE' in metrics:
                 results['Y_GATE_MEAN'] = metrics['Y_GATE'].get('mean')
                 results['Y_GATE_STD'] = metrics['Y_GATE'].get('std')
+
+            # Aggregate structural score across available metrics
+            score_candidates = [
+                results.get('CIP'),
+                results.get('CSI'),
+                results.get('MBRI'),
+                results.get('MAC'),
+                results.get('RIC_score'),
+                results.get('PSR'),
+                results.get('MNI'),
+            ]
+            valid_scores = [v for v in score_candidates if v is not None and not np.isnan(v)]
+            if valid_scores:
+                results['STRUCT_SCORE'] = float(np.mean(valid_scores))
+
             return results
         except Exception as e:
             print(f"Error computing structural metrics: {e}")
@@ -512,9 +565,19 @@ class CSPTrainer:
         """Check early stopping condition."""
         if self.early_stopping_metric not in val_metrics:
             return False
-        
-        current_metric = val_metrics[self.early_stopping_metric]
-        
+
+        raw_metric = val_metrics[self.early_stopping_metric]
+        if raw_metric is None:
+            return False
+
+        try:
+            current_metric = float(raw_metric)
+        except (TypeError, ValueError):
+            return False
+
+        if np.isnan(current_metric):
+            return False
+
         improved = False
         if self.early_stopping_mode == 'min':
             if current_metric < self.best_metric:
@@ -586,7 +649,12 @@ class CSPTrainer:
         # Load training state
         self.current_epoch = checkpoint.get('epoch', 0)
         self.current_step = checkpoint.get('current_step', 0)
-        self.best_metric = checkpoint.get('best_metric', float('inf'))
+        default_best = (
+            float('-inf')
+            if self.training_config.get('early_stopping_mode', 'max') == 'max'
+            else float('inf')
+        )
+        self.best_metric = checkpoint.get('best_metric', default_best)
         
         print(f"Checkpoint loaded from: {checkpoint_path}")
         print(f"Resumed from epoch {self.current_epoch}, step {self.current_step}")
@@ -675,6 +743,29 @@ class CSPTrainer:
                 csi_delta = struct_metrics.get('CSI_structure_preference')
                 if csi_delta is not None:
                     print(f"  CSI Δ (r2_mediated - r2_direct): {csi_delta:.6f}")
+                ric_score = struct_metrics.get('RIC_score')
+                if ric_score is not None:
+                    ric_parts = []
+                    for label in ('treatment', 'mediator', 'outcome'):
+                        comp_val = struct_metrics.get(f'RIC_{label}')
+                        if comp_val is not None:
+                            ric_parts.append(f"{label[:3]}={comp_val:.4f}")
+                    ric_details = ' | '.join(ric_parts) if ric_parts else ''
+                    suffix = f" ({ric_details})" if ric_details else ''
+                    print(f"  RIC: {ric_score:.4f}{suffix}")
+                psr_score = struct_metrics.get('PSR')
+                if psr_score is not None:
+                    interaction = struct_metrics.get('PSR_interaction')
+                    interaction_str = f", interaction={interaction:.4f}" if interaction is not None else ''
+                    print(f"  PSR: {psr_score:.4f}{interaction_str}")
+                mni_score = struct_metrics.get('MNI')
+                if mni_score is not None:
+                    mi_cond = struct_metrics.get('MNI_conditional')
+                    mi_cond_str = f", MI_cond={mi_cond:.4f}" if mi_cond is not None else ''
+                    print(f"  MNI: {mni_score:.4f}{mi_cond_str}")
+                struct_score = struct_metrics.get('STRUCT_SCORE')
+                if struct_score is not None:
+                    print(f"  Structural score: {struct_score:.4f}")
                 gate_mean = struct_metrics.get('Y_GATE_MEAN')
                 gate_std = struct_metrics.get('Y_GATE_STD')
                 if gate_mean is not None and gate_std is not None:
