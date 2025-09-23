@@ -423,6 +423,7 @@ class CSPEncoderModule(nn.Module):
         
         self.scenario = scenario
         self.z_dim = z_dim
+        self._mediator_released = False
         
         # Set default feature dimensions
         if feature_dims is None:
@@ -558,6 +559,13 @@ class CSPEncoderModule(nn.Module):
             print(f"[Encoder] force_mediator={self.force_mediator} direct_scale={self.y_direct_scale}")
             self._fusion_debug_printed = True
         z_y_direct = self.encoder_Y(batch['Y_star'])
+        residual_dim = getattr(self, 'residual_dim', 16)
+        if residual_dim and 0 < residual_dim < self.z_dim:
+            residual_idx = torch.arange(residual_dim, device=z_y_direct.device)
+            residual_part = z_y_direct[:, residual_idx]
+            residual_scale = getattr(self, 'residual_scale', 0.5)
+            z_y_direct = z_y_direct * residual_scale
+            z_y_direct[:, residual_idx] = residual_part
         if self.y_direct_dropout is not None and self.training:
             z_y_direct = self.y_direct_dropout(z_y_direct)
         z_y_direct = z_y_direct * self.y_direct_scale
@@ -581,6 +589,11 @@ class CSPEncoderModule(nn.Module):
             else:
                 raise ValueError(f"{self.scenario} scenario requires M in batch")
 
+        if hasattr(self, 'predict_y_from_m') and callable(self.predict_y_from_m) and 'z_M' in representations:
+            bias = self.predict_y_from_m(representations['z_M'])
+        else:
+            bias = 0.0
+
         # Handle additional image encodings for non-IM scenarios
         if self.scenario == 'DUAL' and 'I_M' in batch and batch.get('I_M') is not None:
             representations['z_I_M'] = self.encoder_I_M(batch['I_M'])
@@ -589,7 +602,7 @@ class CSPEncoderModule(nn.Module):
             representations['z_I_Y'] = self.encoder_I_Y(batch['I_Y'])
 
         if self.enable_y_fusion and 'z_M' in representations:
-            mediator_influence = self.y_mediator_scale * self.mediator_to_y(representations['z_M'])
+            mediator_influence = self.y_mediator_scale * self.mediator_to_y(representations['z_M']) + bias
             if self.force_mediator:
                 z_y = mediator_influence
                 representations['y_gate'] = torch.ones_like(mediator_influence)
@@ -600,7 +613,7 @@ class CSPEncoderModule(nn.Module):
                 z_y = (1 - gate) * z_y_direct + gate * mediator_influence
                 representations['y_gate'] = gate
         else:
-            z_y = z_y_direct
+            z_y = z_y_direct + bias
             if self.enable_y_fusion:
                 representations['y_gate'] = None
 

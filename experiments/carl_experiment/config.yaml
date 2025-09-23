@@ -29,6 +29,8 @@ evaluation:
   - z_T
   - z_M
   - z_Y
+  - z_Y_direct
+  - y_gate
   save_metrics: true
   save_plots: true
   save_representations: true
@@ -44,19 +46,24 @@ model:
     - 64
     y_fusion:
       direct_dropout: 0.3
-      direct_scale: 0.0
+      direct_scale: 0.2
       enabled: true
-      force_mediator: true
+      force_mediator: false
       gate_sharpness: 4.0
-      mediator_scale: 1.5
+      mediator_scale: 1.4
   feature_dims: null
   loss_config:
+    adv_t:
+      alpha: 1.0
+      enabled: true
+      weight: 0.3
     align:
       enabled: true
       weight: 0.5
     ci:
+      detach_zm: false
       enabled: true
-      weight: 1.0
+      weight: 2.0
     decor:
       enabled: true
       weight: 1.0
@@ -65,19 +72,30 @@ model:
       weight: 0.1
     mac:
       enabled: true
-      weight: 0.5
+      weight: 0.4
     mbr:
       enabled: true
-      weight: 1.0
+      weight: 1.2
     style:
       enabled: false
       weight: 0.1
   phase_config:
-    mediator_release_epoch: 5
+    full:
+      enabled_losses:
+      - ci
+      - mbr
+      - mac
+      - align
+      - decor
+      - adv_t
+      epochs:
+      - 8
+      - .inf
+    mediator_release_epoch: 3
     mediator_release_settings:
-      direct_scale: 0.1
+      direct_scale: 0.4
       force_mediator: false
-    warmup1_epochs: 20
+    warmup1_epochs: 5
     warmup1_losses:
     - mac
     - align
@@ -103,7 +121,7 @@ training:
   gradient_clip_val: 5.0
   learning_rate: 0.001
   log_every_n_steps: 5
-  max_epochs: 10
+  max_epochs: 30
   optimizer: adamw
   optimizer_config:
     betas:

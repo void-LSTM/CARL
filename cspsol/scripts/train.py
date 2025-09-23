@@ -356,7 +356,8 @@ def setup_model(config, feature_dims, args):
             feature_dims=feature_dims,
             loss_config=getattr(config.model, 'loss_config', {}),
             encoder_config=getattr(config.model, 'encoder_config', {}),
-            balancer_config=getattr(config.model, 'balancer_config', {})
+            balancer_config=getattr(config.model, 'balancer_config', {}),
+            training_phases=getattr(config.model, 'phase_config', {})
         )
         
         # Move to device

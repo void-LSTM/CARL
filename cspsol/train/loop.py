@@ -291,6 +291,57 @@ class CSPTrainer:
             Dictionary of training metrics
         """
         self.model.train()
+
+        # Optional staged mediator release
+        training_phases = getattr(self.model, 'training_phases', {}) or {}
+        release_epoch = training_phases.get('mediator_release_epoch')
+        release_settings = training_phases.get('mediator_release_settings', {}) or {}
+        if release_epoch is not None:
+            try:
+                release_epoch_int = int(release_epoch)
+            except (TypeError, ValueError):
+                release_epoch_int = None
+        else:
+            release_epoch_int = None
+
+        if release_epoch_int is not None and epoch >= release_epoch_int:
+            encoder = getattr(self.model, 'encoders', None)
+            if encoder is not None and getattr(encoder, 'force_mediator', None) and not getattr(encoder, '_mediator_released', False):
+                encoder.force_mediator = release_settings.get('force_mediator', False)
+                encoder.y_direct_scale = release_settings.get('direct_scale', getattr(encoder, 'y_direct_scale', 0.0))
+                if 'mediator_scale' in release_settings:
+                    encoder.y_mediator_scale = release_settings['mediator_scale']
+                encoder._mediator_release_settings = release_settings
+                encoder._mediator_released = True
+                encoder._mediator_last_schedule_epoch = epoch
+                print(f"[Mediator release] epoch {epoch}: force_mediator={encoder.force_mediator}, "
+                      f"direct_scale={encoder.y_direct_scale}")
+
+        encoder = getattr(self.model, 'encoders', None)
+        if encoder is not None and getattr(encoder, '_mediator_released', False):
+            settings = getattr(encoder, '_mediator_release_settings', {}) or {}
+            inc = settings.get('scale_increment')
+            max_scale = settings.get('max_scale')
+            if inc is not None:
+                try:
+                    inc = float(inc)
+                except (TypeError, ValueError):
+                    inc = None
+            if max_scale is not None:
+                try:
+                    max_scale = float(max_scale)
+                except (TypeError, ValueError):
+                    max_scale = None
+            last_epoch = getattr(encoder, '_mediator_last_schedule_epoch', None)
+            if inc and (last_epoch is None or epoch > last_epoch):
+                current_scale = getattr(encoder, 'y_direct_scale', 0.0)
+                target_scale = current_scale + inc
+                if max_scale is not None:
+                    target_scale = min(target_scale, max_scale)
+                if target_scale > current_scale:
+                    encoder.y_direct_scale = target_scale
+                    encoder._mediator_last_schedule_epoch = epoch
+                    print(f"[Mediator schedule] epoch {epoch}: updated direct_scale={encoder.y_direct_scale}")
         epoch_metrics = defaultdict(list)
         
         # Apply warmup
@@ -436,7 +487,13 @@ class CSPTrainer:
             if 'CSI' in metrics:
                 csi_metrics = metrics['CSI']
                 results['CSI'] = csi_metrics.get('csi_score')
-                for key in ['structure_preference', 'r2_mediated', 'r2_direct', 'r2_m_only']:
+                extra_keys = [
+                    'structure_preference', 'r2_mediated', 'r2_direct', 'r2_m_only',
+                    'structure_preference_rf', 'r2_mediated_rf', 'r2_direct_rf', 'r2_m_only_rf', 'r2_perm_rf',
+                    'csi_score_linear', 'structure_preference_linear',
+                    'r2_mediated_linear', 'r2_direct_linear', 'r2_m_only_linear', 'r2_perm_linear'
+                ]
+                for key in extra_keys:
                     if csi_metrics.get(key) is not None:
                         results[f'CSI_{key}'] = csi_metrics.get(key)
             if 'MBRI' in metrics:
@@ -449,7 +506,7 @@ class CSPTrainer:
             return results
         except Exception as e:
             print(f"Error computing structural metrics: {e}")
-            return {}
+        return {}
     
     def _check_early_stopping(self, val_metrics: Dict[str, float]) -> bool:
         """Check early stopping condition."""
@@ -559,16 +616,16 @@ class CSPTrainer:
         for epoch in range(start_epoch, self.training_config['max_epochs']):
             self.current_epoch = epoch
             epoch_start_time = time.time()
-            
+
             # Training
             train_metrics = self.train_epoch(epoch)
-            
+
             # Validation
             if epoch % self.training_config['check_val_every_n_epoch'] == 0:
                 val_metrics = self.validate_epoch(epoch)
             else:
                 val_metrics = {}
-            
+
             # Structural metrics (CIP, CSI, MBRI, MAC)
             struct_metrics = self.compute_structural_metrics()
             for key, value in struct_metrics.items():

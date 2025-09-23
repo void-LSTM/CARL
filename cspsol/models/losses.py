@@ -477,17 +477,31 @@ class LossMAC(nn.Module):
             MAC loss (negative correlation), shape ()
         """
         batch_size = z.shape[0]
-        
+
         if batch_size < 2:
             return z.new_zeros(())
-        
+
+        # Normalize representations and semantics to emphasize relative structure
+        z = z.float()
+        a = a.float()
+
+        z = z - z.mean(dim=0, keepdim=True)
+        z_std = z.std(dim=0, keepdim=True) + 1e-6
+        z = z / z_std
+
+        if a.dim() == 1:
+            a = a.unsqueeze(1)
+        a = a - a.mean(dim=0, keepdim=True)
+        a_std = a.std(dim=0, keepdim=True) + 1e-6
+        a = a / a_std
+
         # Sample pairs for efficiency
         max_possible_pairs = batch_size * (batch_size - 1) // 2
         num_pairs = min(self.max_pairs, max_possible_pairs)
-        
+
         if num_pairs <= 10:  # Too few pairs for reliable correlation
             return torch.tensor(0.0, device=z.device)
-        
+
         # compute all pairwise differences manually (avoids pdist gradient issues)
         def manual_pdist(x: torch.Tensor) -> torch.Tensor:
             """Manual pairwise distance computation with proper gradients."""
@@ -499,14 +513,11 @@ class LossMAC(nn.Module):
             i, j = torch.triu_indices(n, n, offset=1, device=x.device)
             
             # Compute distances between pairs
-            if x.dim() == 1:
-                x = x.unsqueeze(1)
-            
             diffs = x[i] - x[j]
             distances = torch.norm(diffs, p=2, dim=1)
             return distances
 
-        a_diffs = manual_pdist(a.unsqueeze(1) if a.dim() == 1 else a)
+        a_diffs = manual_pdist(a)
         z_diffs = manual_pdist(z)
 
         # sample pairs if necessary

@@ -7,6 +7,7 @@ Supports representation extraction, causal structure validation, and performance
 import torch
 import torch.nn as nn
 from typing import Dict, List, Optional, Tuple, Union, Any, Callable
+from math import erf, sqrt
 import numpy as np
 from pathlib import Path
 import json
@@ -184,7 +185,9 @@ class CSPMetricsComputer:
     def __init__(self, 
                  scenario: str,
                  significance_level: float = 0.05,
-                 n_bootstrap: int = 1000):
+                 n_bootstrap: int = 1000,
+                 csi_permutations: int = 3,
+                 random_state: int = 42):
         """
         Initialize CSP metrics computer.
         
@@ -196,6 +199,8 @@ class CSPMetricsComputer:
         self.scenario = scenario
         self.significance_level = significance_level
         self.n_bootstrap = n_bootstrap
+        self.csi_permutations = max(1, int(csi_permutations))
+        self.rng = np.random.default_rng(random_state)
     
     def compute_cip(self, 
                     z_T: np.ndarray, 
@@ -292,17 +297,19 @@ class CSPMetricsComputer:
             Dictionary with CSI metrics
         """
         try:
-            # Mock implementation - replace with actual CSPBench call
+            from sklearn.base import clone
             from sklearn.linear_model import LinearRegression
             from sklearn.metrics import r2_score
+            from sklearn.model_selection import KFold
+            from sklearn.ensemble import RandomForestRegressor
 
             z_T_2d = self._ensure_2d(z_T)
             z_M_2d = self._ensure_2d(z_M)
             z_Y_2d = self._ensure_2d(z_Y)
 
             n_samples = min(z_T_2d.shape[0], z_M_2d.shape[0], z_Y_2d.shape[0])
-            if n_samples < 2:
-                raise ValueError("CSI requires at least two samples")
+            if n_samples < 3:
+                raise ValueError("CSI requires at least three samples for cross-validation")
 
             if not (z_T_2d.shape[0] == z_M_2d.shape[0] == z_Y_2d.shape[0]):
                 warnings.warn(
@@ -312,42 +319,190 @@ class CSPMetricsComputer:
                 z_M_2d = z_M_2d[:n_samples]
                 z_Y_2d = z_Y_2d[:n_samples]
 
-            # Test causal chain: T → M → Y vs alternatives
+            n_splits = min(3, n_samples)
+            kf = KFold(n_splits=n_splits, shuffle=True, random_state=self.rng.integers(1 << 31))
+            splits = list(kf.split(range(n_samples)))
 
-            # Model 1: T → M → Y (correct structure)
-            reg_tm = LinearRegression().fit(z_T_2d, z_M_2d)
-            pred_M = reg_tm.predict(z_T_2d)
+            def safe_r2(y_true, y_pred):
+                if np.any(np.isnan(y_pred)) or np.any(np.isinf(y_pred)):
+                    return float('nan')
+                try:
+                    if np.allclose(np.std(y_true, axis=0), 0):
+                        return 0.0
+                    return float(r2_score(y_true, y_pred, multioutput='variance_weighted'))
+                except ValueError:
+                    return float('nan')
 
-            reg_my = LinearRegression().fit(pred_M, z_Y_2d)
-            final_pred_Y = reg_my.predict(pred_M)
+            def two_stage_cv(z_T_data, z_M_data, stage1, stage2, direct_estimator, m_only_estimator, fold_indices):
+                r2_mediated = []
+                r2_direct = []
+                r2_m_only = []
+                for train_idx, test_idx in fold_indices:
+                    train_idx = np.asarray(train_idx)
+                    test_idx = np.asarray(test_idx)
 
-            r2_correct = r2_score(z_Y_2d, final_pred_Y, multioutput='variance_weighted')
+                    T_train, T_test = z_T_data[train_idx], z_T_data[test_idx]
+                    M_train, M_test = z_M_data[train_idx], z_M_data[test_idx]
+                    Y_train, Y_test = z_Y_2d[train_idx], z_Y_2d[test_idx]
 
-            # Model 2: Direct T → Y (incorrect structure)
-            reg_ty = LinearRegression().fit(z_T_2d, z_Y_2d)
-            direct_pred_Y = reg_ty.predict(z_T_2d)
+                    stage1_model = clone(stage1)
+                    stage1_model.fit(T_train, M_train)
+                    Mhat_train = stage1_model.predict(T_train)
 
-            r2_direct = r2_score(z_Y_2d, direct_pred_Y, multioutput='variance_weighted')
+                    stage2_model = clone(stage2)
+                    stage2_model.fit(Mhat_train, Y_train)
+                    Mhat_test = stage1_model.predict(T_test)
+                    Y_pred_mediated = stage2_model.predict(Mhat_test)
+                    r2_mediated.append(safe_r2(Y_test, Y_pred_mediated))
 
-            # CSI score: preference for correct structure. Guard against degenerate R²
-            denom = np.clip(abs(r2_correct), a_min=1e-8, a_max=None)
-            csi_raw = (r2_correct - r2_direct) / denom
-            csi_score = float(np.clip(csi_raw, 0.0, 1.0))
+                    direct_model = clone(direct_estimator)
+                    direct_model.fit(T_train, Y_train)
+                    Y_pred_direct = direct_model.predict(T_test)
+                    r2_direct.append(safe_r2(Y_test, Y_pred_direct))
+
+                    m_only_model = clone(m_only_estimator)
+                    m_only_model.fit(M_train, Y_train)
+                    Y_pred_m_only = m_only_model.predict(M_test)
+                    r2_m_only.append(safe_r2(Y_test, Y_pred_m_only))
+
+                return {
+                    'mediated': np.asarray(r2_mediated, dtype=np.float64),
+                    'direct': np.asarray(r2_direct, dtype=np.float64),
+                    'm_only': np.asarray(r2_m_only, dtype=np.float64)
+                }
+
+            # Linear diagnostic (two-stage regression)
+            linear_stage1 = LinearRegression()
+            linear_stage2 = LinearRegression()
+            linear_direct = LinearRegression()
+            linear_results = two_stage_cv(
+                z_T_2d,
+                z_M_2d,
+                linear_stage1,
+                linear_stage2,
+                linear_direct,
+                linear_stage2,
+                splits
+            )
+
+            r2_mediated_linear = np.nanmean(linear_results['mediated'])
+            r2_direct_linear = np.nanmean(linear_results['direct'])
+            r2_m_only_linear = np.nanmean(linear_results['m_only'])
+            improvement_linear = r2_mediated_linear - r2_direct_linear
+
+            perm_linear_improvements = []
+            for _ in range(self.csi_permutations):
+                perm_idx = self.rng.permutation(n_samples)
+                z_M_perm = z_M_2d[perm_idx]
+                perm_results = two_stage_cv(
+                    z_T_2d,
+                    z_M_perm,
+                    linear_stage1,
+                    linear_stage2,
+                    linear_direct,
+                    linear_stage2,
+                    splits
+                )
+                perm_r2_mediated = np.nanmean(perm_results['mediated'])
+                perm_linear_improvements.append(perm_r2_mediated - r2_direct_linear)
+            perm_linear_improvements = np.asarray(perm_linear_improvements, dtype=np.float64)
+            if perm_linear_improvements.size == 0 or np.all(np.isnan(perm_linear_improvements)):
+                csi_linear = 0.5
+                r2_perm_linear = float('nan')
+            else:
+                valid_perm = perm_linear_improvements[~np.isnan(perm_linear_improvements)]
+                if valid_perm.size == 0:
+                    csi_linear = 0.5
+                    r2_perm_linear = float('nan')
+                else:
+                    greater = np.sum(improvement_linear > valid_perm)
+                    ties = np.sum(np.isclose(improvement_linear, valid_perm, atol=1e-8))
+                    csi_linear = float((greater + 0.5 * ties + 1) / (valid_perm.size + 1))
+                    r2_perm_linear = float(np.mean(valid_perm + r2_direct_linear))
+
+            if np.isnan(improvement_linear) or (csi_linear == 0.0 and r2_mediated_linear <= r2_direct_linear):
+                warning_msg = 'mediated path underperforms direct path in current linear diagnostic'
+            else:
+                warning_msg = None
+
+            # Non-linear diagnostic using Random Forest (two-stage)
+            rf_seed = int(self.rng.integers(1 << 31))
+            rf_stage1 = RandomForestRegressor(n_estimators=64, random_state=rf_seed, n_jobs=-1)
+            rf_stage2 = RandomForestRegressor(n_estimators=64, random_state=rf_seed + 1, n_jobs=-1)
+            rf_direct = RandomForestRegressor(n_estimators=64, random_state=rf_seed + 2, n_jobs=-1)
+
+            rf_results = two_stage_cv(
+                z_T_2d,
+                z_M_2d,
+                rf_stage1,
+                rf_stage2,
+                rf_direct,
+                rf_stage2,
+                splits
+            )
+
+            r2_mediated_rf = np.nanmean(rf_results['mediated'])
+            r2_direct_rf = np.nanmean(rf_results['direct'])
+            r2_m_only_rf = np.nanmean(rf_results['m_only'])
+            improvement_rf = r2_mediated_rf - r2_direct_rf
+
+            perm_rf_improvements = []
+            for _ in range(self.csi_permutations):
+                perm_idx = self.rng.permutation(n_samples)
+                z_M_perm = z_M_2d[perm_idx]
+                perm_results = two_stage_cv(
+                    z_T_2d,
+                    z_M_perm,
+                    rf_stage1,
+                    rf_stage2,
+                    rf_direct,
+                    rf_stage2,
+                    splits
+                )
+                perm_r2_mediated = np.nanmean(perm_results['mediated'])
+                perm_rf_improvements.append(perm_r2_mediated - r2_direct_rf)
+            perm_rf_improvements = np.asarray(perm_rf_improvements, dtype=np.float64)
+            if perm_rf_improvements.size == 0 or np.all(np.isnan(perm_rf_improvements)):
+                csi_rf = 0.5
+                r2_perm_rf = float('nan')
+            else:
+                valid_perm_rf = perm_rf_improvements[~np.isnan(perm_rf_improvements)]
+                if valid_perm_rf.size == 0:
+                    csi_rf = 0.5
+                    r2_perm_rf = float('nan')
+                else:
+                    greater_rf = np.sum(improvement_rf > valid_perm_rf)
+                    ties_rf = np.sum(np.isclose(improvement_rf, valid_perm_rf, atol=1e-8))
+                    csi_rf = float((greater_rf + 0.5 * ties_rf + 1) / (valid_perm_rf.size + 1))
+                    r2_perm_rf = float(np.mean(valid_perm_rf + r2_direct_rf))
 
             diagnostics = {
-                'csi_score': csi_score,
-                'r2_mediated': float(r2_correct),
-                'r2_direct': float(r2_direct),
-                'structure_preference': float(r2_correct - r2_direct),
+                'csi_score': csi_rf,
+                'csi_score_rf': csi_rf,
+                'r2_mediated_rf': float(r2_mediated_rf),
+                'r2_direct_rf': float(r2_direct_rf),
+                'r2_m_only_rf': float(r2_m_only_rf),
+                'structure_preference_rf': float(improvement_rf),
+                'r2_perm_rf': float(r2_perm_rf) if not np.isnan(r2_perm_rf) else None,
+                'csi_score_linear': csi_linear,
+                'r2_mediated_linear': float(r2_mediated_linear),
+                'r2_direct_linear': float(r2_direct_linear),
+                'r2_m_only_linear': float(r2_m_only_linear),
+                'structure_preference_linear': float(improvement_linear),
+                'r2_perm_linear': float(r2_perm_linear) if not np.isnan(r2_perm_linear) else None,
                 'features_T': z_T_2d.shape[1],
                 'features_M': z_M_2d.shape[1],
                 'features_Y': z_Y_2d.shape[1],
-                'n_samples': int(n_samples)
+                'n_samples': int(n_samples),
+                'cv_splits': n_splits,
+                'perm_samples': self.csi_permutations
             }
 
-            if csi_score == 0.0 and r2_correct <= r2_direct:
-                diagnostics['reason'] = (
-                    'mediated path underperforms direct path in current linear diagnostic'
+            if warning_msg is not None:
+                diagnostics['reason_linear'] = warning_msg
+            if np.isnan(improvement_rf) or (csi_rf == 0.0 and r2_mediated_rf <= r2_direct_rf):
+                diagnostics['reason_rf'] = (
+                    'mediated path underperforms direct path in random-forest diagnostic'
                 )
 
             return diagnostics

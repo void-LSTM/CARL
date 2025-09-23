@@ -15,6 +15,7 @@ if __package__ is None or __package__ == "":
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from typing import Dict, List, Optional, Tuple, Union, Any
 import warnings
 from collections import defaultdict
@@ -81,6 +82,9 @@ class CausalAwareModel(nn.Module):
         self.training_phases = self._get_default_training_phases()
         if training_phases:
             self.training_phases = self._deep_merge_config(self.training_phases, training_phases)
+
+        self.mediator_release_epoch = None
+        self.mediator_release_settings = {}
         
         # Set default feature dimensions
         if feature_dims is None:
@@ -92,9 +96,13 @@ class CausalAwareModel(nn.Module):
         
         # Build model components
         self._build_encoders()
+        self.adversarial_heads = nn.ModuleDict()
+        self.adv_grls = nn.ModuleDict()
         self._build_losses()
         self._build_balancer()
         self._build_grl()
+        self._setup_predictors()
+        self._setup_predictors()
         
         # Training state
         self.current_epoch = 0
@@ -114,7 +122,8 @@ class CausalAwareModel(nn.Module):
             'align': {'enabled': False, 'temperature': 0.07},
             'style': {'enabled': False, 'style_type': 'regression', 'num_styles': 1},
             'ib': {'enabled': False, 'beta': 1e-4},
-            'decor': {'enabled': False, 'weight': 0.5}
+            'decor': {'enabled': False, 'weight': 0.5},
+            'adv_t': {'enabled': False, 'weight': 0.5, 'alpha': 1.0}
         }
     
     def _get_default_encoder_config(self) -> Dict[str, Dict]:
@@ -190,6 +199,12 @@ class CausalAwareModel(nn.Module):
                 if cfg.get('enabled')
             ]
 
+        warmup2_losses = ['ci', 'mbr', 'mac', 'align', 'decor']
+        full_losses = ['ci', 'mbr', 'mac', 'align', 'style', 'ib', 'decor']
+        if self.loss_config.get('adv_t', {}).get('enabled'):
+            warmup2_losses.append('adv_t')
+            full_losses.append('adv_t')
+
         return {
             'warmup1': {
                 'epochs': [0, 10],
@@ -199,13 +214,13 @@ class CausalAwareModel(nn.Module):
             },
             'warmup2': {
                 'epochs': [10, 20],
-                'enabled_losses': ['ci', 'mbr', 'mac', 'align', 'decor'],
+                'enabled_losses': warmup2_losses,
                 'use_grl': False,
                 'use_vib': False
             },
             'full': {
                 'epochs': [20, float('inf')],
-                'enabled_losses': ['ci', 'mbr', 'mac', 'align', 'style', 'ib', 'decor'],
+                'enabled_losses': full_losses,
                 'use_grl': True,
                 'use_vib': True
             }
@@ -291,6 +306,55 @@ class CausalAwareModel(nn.Module):
 
         if self.loss_config['decor']['enabled']:
             self.losses['decor'] = LossDecorr()
+
+        if self.loss_config.get('adv_t', {}).get('enabled'):
+            hidden_dim = int(self.loss_config['adv_t'].get('hidden_dim', max(16, self.z_dim // 2)))
+            self.adversarial_heads['t'] = nn.Sequential(
+                nn.Linear(self.z_dim, hidden_dim),
+                nn.ReLU(inplace=True),
+                nn.Linear(hidden_dim, 1)
+            )
+            adv_cfg = self.loss_config['adv_t']
+            if adv_cfg.get('adaptive', False):
+                self.adv_grls['t'] = create_grl(
+                    adaptive=True,
+                    max_alpha=float(adv_cfg.get('alpha', 1.0)),
+                    schedule=str(adv_cfg.get('schedule', 'linear')),
+                    warmup_steps=int(adv_cfg.get('warmup_steps', 1000))
+                )
+            else:
+                self.adv_grls['t'] = create_grl(alpha=float(adv_cfg.get('alpha', 1.0)))
+            self.losses['adv_t'] = nn.Identity()
+
+    def _setup_predictors(self):
+        """Configure auxiliary predictors and fusion parameters."""
+        fusion_cfg = self.encoder_config.get('y_fusion', {}) if isinstance(self.encoder_config, dict) else {}
+        residual_dim = fusion_cfg.get('residual_dim', 16)
+        residual_scale = fusion_cfg.get('residual_scale', 0.5)
+
+        if isinstance(residual_dim, (int, float)):
+            residual_dim = int(residual_dim)
+        else:
+            residual_dim = None
+
+        if hasattr(self, 'encoders'):
+            self.encoders.residual_dim = residual_dim
+            self.encoders.residual_scale = float(residual_scale)
+
+        if fusion_cfg.get('enable_cross_predictor', True):
+            hidden = fusion_cfg.get('predictor_hidden', self.z_dim)
+            hidden = max(8, int(hidden))
+            self.predict_y_from_m = nn.Sequential(
+                nn.Linear(self.z_dim, hidden),
+                nn.ReLU(inplace=True),
+                nn.Linear(hidden, self.z_dim)
+            )
+            if hasattr(self, 'encoders'):
+                self.encoders.predict_y_from_m = self.predict_y_from_m
+        else:
+            self.predict_y_from_m = None
+            if hasattr(self, 'encoders'):
+                self.encoders.predict_y_from_m = None
     
     def _build_balancer(self):
         """Build loss balancing module."""
@@ -457,7 +521,8 @@ class CausalAwareModel(nn.Module):
             else:
                 y_target = torch.mean(y_target, dim=1)  # (batch_size, d) -> (batch_size,)
         if 'mbr' in active_losses and z_T is not None and z_M is not None and y_target is not None:
-            mbr_loss, mbr_comps = self.losses['mbr'](z_M, z_T, y_target)
+            y_embedding = representations.get('z_Y')
+            mbr_loss, mbr_comps = self.losses['mbr'](z_M, z_T, y_target, y_embedding=y_embedding)
             computed_losses['mbr'] = mbr_loss
             loss_components.update({f'mbr_{k}': v for k, v in mbr_comps.items()})
         
@@ -501,6 +566,20 @@ class CausalAwareModel(nn.Module):
         if 'decor' in active_losses and z_T is not None and z_Y is not None:
             decor_weight = self.loss_config['decor'].get('weight', 1.0)
             computed_losses['decor'] = decor_weight * self.losses['decor'](z_T, z_Y)
+
+        if 'adv_t' in active_losses and 't' in self.adversarial_heads and T_tensor is not None:
+            adv_head = self.adversarial_heads['t']
+            adv_input = z_Y
+            grl = self.adv_grls['t'] if 't' in self.adv_grls else None
+            if grl is not None:
+                if hasattr(grl, 'update_alpha'):
+                    grl.update_alpha(self.current_step)
+                adv_input = grl(adv_input)
+            pred_t = adv_head(adv_input).view(-1)
+            t_target = T_tensor.view(-1).float()
+            weight = self.loss_config['adv_t'].get('weight', 1.0)
+            computed_losses['adv_t'] = weight * F.mse_loss(pred_t, t_target)
+
         # Balance losses if balancer is available
         # Balance losses if balancer is available (only during training)
         if self.balancer is not None and len(computed_losses) > 1 and self.training:
