@@ -29,6 +29,12 @@ class DataConfig:
     val_split: float = 0.2
     test_split: float = 0.1
     random_seed: int = 42
+
+    # Experimental factors for controlled comparisons
+    dataset_size: Optional[int] = None
+    noise_level: Optional[float] = None
+    nonlinearity: Optional[str] = None
+    image_complexity: Optional[str] = None
     
     # Data augmentation
     augmentation: Dict[str, Any] = field(default_factory=dict)
@@ -45,15 +51,35 @@ class DataConfig:
         """Validate configuration after initialization."""
         if self.scenario not in ['IM', 'IY', 'DUAL']:
             raise ValueError(f"Invalid scenario: {self.scenario}")
-        
+
         if not 0 < self.val_split < 1:
             raise ValueError(f"Invalid val_split: {self.val_split}")
-        
+
         if not 0 < self.test_split < 1:
             raise ValueError(f"Invalid test_split: {self.test_split}")
-        
+
         if self.val_split + self.test_split >= 1:
             raise ValueError("val_split + test_split must be < 1")
+
+        if self.dataset_size is not None and self.dataset_size <= 0:
+            raise ValueError(f"dataset_size must be positive when provided: {self.dataset_size}")
+
+        if self.noise_level is not None and not (0.0 <= self.noise_level <= 1.0):
+            raise ValueError(f"noise_level must be in [0, 1]: {self.noise_level}")
+
+        if self.nonlinearity is not None:
+            allowed_nonlinearities = {'linear', 'quadratic', 'neural'}
+            if self.nonlinearity not in allowed_nonlinearities:
+                raise ValueError(
+                    f"nonlinearity must be one of {sorted(allowed_nonlinearities)}: {self.nonlinearity}"
+                )
+
+        if self.image_complexity is not None:
+            allowed_complexities = {'MNIST-style', 'CIFAR-style', 'Natural'}
+            if self.image_complexity not in allowed_complexities:
+                raise ValueError(
+                    f"image_complexity must be one of {sorted(allowed_complexities)}: {self.image_complexity}"
+                )
 
 
 @dataclass
@@ -61,7 +87,9 @@ class ModelConfig:
     """Configuration for model architecture."""
     scenario: str = 'IM'
     z_dim: int = 128
-    
+    model_id: str = 'carl_full'
+    baseline_config: Dict[str, Any] = field(default_factory=dict)
+
     # Feature dimensions (will be auto-detected if not provided)
     feature_dims: Optional[Dict[str, Any]] = None
     
@@ -105,6 +133,9 @@ class ModelConfig:
         
         if self.z_dim <= 0:
             raise ValueError(f"z_dim must be positive: {self.z_dim}")
+
+        if not self.model_id:
+            raise ValueError("model_id must be specified in model configuration")
 
 
 @dataclass
@@ -198,6 +229,54 @@ class EvaluationConfig:
 
 
 @dataclass
+class RunConfig:
+    """Configuration for a single training/evaluation run."""
+    model_id: str = 'carl_full'
+    variant: str = 'full'
+    encoder_tag: str = 'shared_default'
+    notes: str = ''
+    extra_params: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        if not self.model_id:
+            raise ValueError("run.model_id must be specified")
+
+
+@dataclass
+class ExperimentGridConfig:
+    """Configuration grid for systematic experiment sweeps."""
+    data_scales: List[int] = field(default_factory=lambda: [500, 1000, 2000, 5000])
+    noise_levels: List[float] = field(default_factory=lambda: [0.1, 0.3, 0.5])
+    nonlinearities: List[str] = field(default_factory=lambda: ['linear', 'quadratic', 'neural'])
+    image_complexities: List[str] = field(default_factory=lambda: ['MNIST-style', 'CIFAR-style', 'Natural'])
+    seeds: List[int] = field(default_factory=lambda: [0])
+
+    def __post_init__(self):
+        if not self.data_scales:
+            raise ValueError("grid.data_scales must contain at least one value")
+        if any(scale <= 0 for scale in self.data_scales):
+            raise ValueError(f"All grid.data_scales must be positive: {self.data_scales}")
+
+        if not self.noise_levels:
+            raise ValueError("grid.noise_levels must contain at least one value")
+        if any((level < 0.0 or level > 1.0) for level in self.noise_levels):
+            raise ValueError(f"grid.noise_levels must lie in [0, 1]: {self.noise_levels}")
+
+        allowed_nonlinearities = {'linear', 'quadratic', 'neural'}
+        if not set(self.nonlinearities).issubset(allowed_nonlinearities):
+            invalid = set(self.nonlinearities) - allowed_nonlinearities
+            raise ValueError(f"grid.nonlinearities contains invalid entries: {sorted(invalid)}")
+
+        allowed_complexities = {'MNIST-style', 'CIFAR-style', 'Natural'}
+        if not set(self.image_complexities).issubset(allowed_complexities):
+            invalid = set(self.image_complexities) - allowed_complexities
+            raise ValueError(f"grid.image_complexities contains invalid entries: {sorted(invalid)}")
+
+        if not self.seeds:
+            raise ValueError("grid.seeds must contain at least one seed")
+
+
+@dataclass
 class ExperimentConfig:
     """Complete experiment configuration."""
     # Meta information
@@ -210,6 +289,10 @@ class ExperimentConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
+
+    # Run selection and experiment matrix
+    run: RunConfig = field(default_factory=RunConfig)
+    grid: ExperimentGridConfig = field(default_factory=ExperimentGridConfig)
     
     # Experiment setup
     output_dir: str = './experiments'
@@ -316,16 +399,20 @@ class ExperimentConfig:
         model_config = ModelConfig(**config_dict.get('model', {}))
         training_config = TrainingConfig(**config_dict.get('training', {}))
         evaluation_config = EvaluationConfig(**config_dict.get('evaluation', {}))
-        
+        run_config = RunConfig(**config_dict.get('run', {}))
+        grid_config = ExperimentGridConfig(**config_dict.get('grid', {}))
+
         # Extract main config
         main_config = {k: v for k, v in config_dict.items() 
-                      if k not in ['data', 'model', 'training', 'evaluation']}
-        
+                      if k not in ['data', 'model', 'training', 'evaluation', 'run', 'grid']}
+
         return cls(
             data=data_config,
             model=model_config,
             training=training_config,
             evaluation=evaluation_config,
+            run=run_config,
+            grid=grid_config,
             **main_config
         )
 

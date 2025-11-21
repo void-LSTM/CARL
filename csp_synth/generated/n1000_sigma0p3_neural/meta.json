@@ -1,0 +1,246 @@
+{
+  "seed": 42,
+  "n_samples": 1000,
+  "q_misc": 30,
+  "splits": {
+    "train": 0.8,
+    "val": 0.1,
+    "test": 0.1
+  },
+  "scm": {
+    "alpha1": 1.0,
+    "alpha2": 1.0,
+    "rho": 0.5,
+    "delta": 0.0,
+    "sigma_T": 0.3,
+    "sigma_M": 0.3,
+    "sigma_Y": 0.3,
+    "h1": "sin",
+    "h2": "tanh",
+    "gamma1": 1.0,
+    "gamma2": 1.0,
+    "Y_type": "cont"
+  },
+  "imaging": {
+    "use_I_M": true,
+    "use_I_Y": true,
+    "s_level": "mid",
+    "theta_deg": 25,
+    "beta": 0.25,
+    "gamma": 0.25,
+    "sigma_pix": 0.03,
+    "perm_M": 0.0,
+    "perm_Y": 0.0
+  },
+  "g_sem": {
+    "method": "gauss_cdf",
+    "clip_quantiles": [
+      0.005,
+      0.995
+    ]
+  },
+  "g_style": {
+    "method": "gauss_cdf"
+  },
+  "mnist": {
+    "root": "~/.cache/csp_mnist",
+    "class_uniform": true
+  },
+  "ci": {
+    "method": "tigramite_cmi_knn",
+    "alpha": 0.05,
+    "knn": 10,
+    "shuffles": 200,
+    "standardize": true
+  },
+  "mi": {
+    "method": "knn",
+    "k": 10,
+    "standardize": true
+  },
+  "output": {
+    "dir": "csp_synth/generated/n1000_sigma0p3_neural",
+    "save_png": true,
+    "png_optimize": true,
+    "save_npy_images": false
+  },
+  "_resolved_cfg_hash": "31960f312ace",
+  "data_structure": {
+    "tabular_format": "npz",
+    "float_columns": [
+      "T",
+      "M",
+      "Y_star",
+      "W_1",
+      "W_2",
+      "W_3",
+      "W_4",
+      "W_5",
+      "W_6",
+      "W_7",
+      "W_8",
+      "W_9",
+      "W_10",
+      "W_11",
+      "W_12",
+      "W_13",
+      "W_14",
+      "W_15",
+      "W_16",
+      "W_17",
+      "W_18",
+      "W_19",
+      "W_20",
+      "W_21",
+      "W_22",
+      "W_23",
+      "W_24",
+      "W_25",
+      "W_26",
+      "W_27",
+      "W_28",
+      "W_29",
+      "W_30",
+      "S_style",
+      "C",
+      "a_M",
+      "a_Y",
+      "b_style"
+    ],
+    "int_columns": [
+      "subject_id",
+      "base_id_M",
+      "class_id_M",
+      "base_id_Y",
+      "class_id_Y"
+    ],
+    "n_float_cols": 38,
+    "n_int_cols": 5,
+    "images_format": "png",
+    "n_images_M": 1000,
+    "n_images_Y": 1000
+  },
+  "truth_assertions": {
+    "IM": {
+      "TM": false,
+      "MY*": false,
+      "TY*|M": true
+    },
+    "IY": {
+      "TM": false,
+      "MphiY": false,
+      "TphiY|M": true
+    }
+  },
+  "notes": "",
+  "dataset_statistics": {
+    "T": {
+      "mean": -0.00866746623069048,
+      "std": 0.29661670327186584,
+      "min": -1.0945239067077637,
+      "max": 0.9536560773849487,
+      "nan_count": 0
+    },
+    "M": {
+      "mean": -0.037137437611818314,
+      "std": 0.5316110849380493,
+      "min": -1.7568236589431763,
+      "max": 1.6424494981765747,
+      "nan_count": 0
+    },
+    "Y_star": {
+      "mean": -0.04127102717757225,
+      "std": 0.8079041242599487,
+      "min": -2.5302107334136963,
+      "max": 2.408057928085327,
+      "nan_count": 0
+    },
+    "W": {
+      "shape": [
+        1000,
+        30
+      ],
+      "mean": 0.01195576786994934,
+      "std": 1.0040547847747803,
+      "nan_count": 0
+    },
+    "class_distribution_M": {
+      "classes": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "counts": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "n_valid": 1000,
+      "n_missing": 0
+    },
+    "class_distribution_Y": {
+      "classes": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "counts": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "n_valid": 1000,
+      "n_missing": 0
+    },
+    "images_M": {
+      "shape": [
+        1000,
+        28,
+        28
+      ],
+      "mean_brightness": 0.20807258784770966,
+      "std_brightness": 0.295992910861969,
+      "min_value": 0.0,
+      "max_value": 1.0
+    },
+    "images_Y": {
+      "shape": [
+        1000,
+        28,
+        28
+      ],
+      "mean_brightness": 0.20749151706695557,
+      "std_brightness": 0.2958063781261444,
+      "min_value": 0.0,
+      "max_value": 1.0
+    }
+  }
+}

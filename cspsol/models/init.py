@@ -28,6 +28,23 @@ from .gradnorm import (
     GradNorm,
     DynamicWeightAveraging
 )
+from .baselines import (
+    ConcatBaselineModel,
+    AutoEncoderBaselineModel,
+    AlignBaselineModel,
+    ClipBaselineModel,
+    ImageBindBaselineModel,
+    DCCABaselineModel,
+    IRMBaselineModel,
+    CausalVAEBaselineModel,
+    DEARBaselineModel,
+)
+from .registry import (
+    ModelSpec,
+    register_model,
+    list_registered_models,
+    build_registered_model
+)
 
 __all__ = [
     # Main model
@@ -51,11 +68,28 @@ __all__ = [
     'MIEstimator',
     'GaussianHead',
     'BernoulliHead',
-    
+
     # Multi-task balancing
     'MultiTaskBalancer',
     'GradNorm',
-    'DynamicWeightAveraging'
+    'DynamicWeightAveraging',
+
+    # Registry utilities
+    'ModelSpec',
+    'register_model',
+    'list_registered_models',
+    'build_registered_model',
+
+    # Baselines
+    'ConcatBaselineModel',
+    'AutoEncoderBaselineModel',
+    'AlignBaselineModel',
+    'ClipBaselineModel',
+    'ImageBindBaselineModel',
+    'DCCABaselineModel',
+    'IRMBaselineModel',
+    'CausalVAEBaselineModel',
+    'DEARBaselineModel'
 ]
 
 # Model factory functions

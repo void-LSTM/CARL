@@ -457,8 +457,15 @@ class CausalAwareModel(nn.Module):
             Dictionary of computed losses
         """
         active_losses = self._get_active_losses()
-        computed_losses = {}
+        raw_losses: Dict[str, torch.Tensor] = {}
+        weighted_losses: Dict[str, torch.Tensor] = {}
         loss_components = {}
+
+        def _record_loss(name: str, value: torch.Tensor) -> None:
+            """Store raw and weighted variants of a loss tensor."""
+            raw_losses[name] = value
+            weight = float(self.loss_config.get(name, {}).get('weight', 1.0))
+            weighted_losses[name] = value * weight
         
         # Extract commonly used representations
         z_T = representations.get('z_T')
@@ -523,19 +530,22 @@ class CausalAwareModel(nn.Module):
         if 'mbr' in active_losses and z_T is not None and z_M is not None and y_target is not None:
             y_embedding = representations.get('z_Y')
             mbr_loss, mbr_comps = self.losses['mbr'](z_M, z_T, y_target, y_embedding=y_embedding)
-            computed_losses['mbr'] = mbr_loss
+            _record_loss('mbr', mbr_loss)
             loss_components.update({f'mbr_{k}': v for k, v in mbr_comps.items()})
         
         if 'mac' in active_losses and z_target_img is not None and a_target is not None:
-            computed_losses['mac'] = self.losses['mac'](z_target_img, a_target)
+            mac_loss = self.losses['mac'](z_target_img, a_target)
+            _record_loss('mac', mac_loss)
         
         if 'align' in active_losses:
             if self.scenario == 'IM' and 'z_M_tab' in representations:
                 # Align image-based M with tabular M
-                computed_losses['align'] = self.losses['align'](z_M, representations['z_M_tab'])
+                align_loss = self.losses['align'](z_M, representations['z_M_tab'])
+                _record_loss('align', align_loss)
             elif self.scenario in ['IY', 'DUAL'] and z_target_img is not None and z_M is not None:
                 # Align image with tabular M
-                computed_losses['align'] = self.losses['align'](z_target_img, z_M)
+                align_loss = self.losses['align'](z_target_img, z_M)
+                _record_loss('align', align_loss)
         
         if 'style' in active_losses and z_target_img is not None:
             # Apply GRL if enabled and in appropriate phase
@@ -546,7 +556,8 @@ class CausalAwareModel(nn.Module):
                 z_for_style = z_target_img
             
             style_target = batch.get('b_style', torch.zeros(z_target_img.shape[0], device=z_target_img.device))
-            computed_losses['style'] = self.losses['style'](z_for_style, style_target)
+            style_loss = self.losses['style'](z_for_style, style_target)
+            _record_loss('style', style_loss)
         
         if 'ib' in active_losses and self.training_phases[self.current_phase].get('use_vib', False):
             # Apply IB to all representations
@@ -554,18 +565,19 @@ class CausalAwareModel(nn.Module):
             for rep_name, rep_tensor in representations.items():
                 if rep_name.startswith('z_'):
                     ib_loss += self.losses['ib'](rep_tensor)
-            computed_losses['ib'] = ib_loss
+            _record_loss('ib', ib_loss)
         # Compute individual losses
         
         if 'ci' in active_losses and z_T is not None and z_M is not None and y_target is not None:
-            computed_losses['ci'] = self.losses['ci'](z_T, z_M, y_target)
+            ci_loss = self.losses['ci'](z_T, z_M, y_target)
+            _record_loss('ci', ci_loss)
         else:
             if 'ci' in active_losses:
                 print(f"CI loss skipped: active={'ci' in active_losses}, z_T={z_T is not None}, z_M={z_M is not None}, y_target={y_target is not None}")
 
         if 'decor' in active_losses and z_T is not None and z_Y is not None:
-            decor_weight = self.loss_config['decor'].get('weight', 1.0)
-            computed_losses['decor'] = decor_weight * self.losses['decor'](z_T, z_Y)
+            decor_loss = self.losses['decor'](z_T, z_Y)
+            _record_loss('decor', decor_loss)
 
         if 'adv_t' in active_losses and 't' in self.adversarial_heads and T_tensor is not None:
             adv_head = self.adversarial_heads['t']
@@ -577,33 +589,39 @@ class CausalAwareModel(nn.Module):
                 adv_input = grl(adv_input)
             pred_t = adv_head(adv_input).view(-1)
             t_target = T_tensor.view(-1).float()
-            weight = self.loss_config['adv_t'].get('weight', 1.0)
-            computed_losses['adv_t'] = weight * F.mse_loss(pred_t, t_target)
+            adv_loss = F.mse_loss(pred_t, t_target)
+            _record_loss('adv_t', adv_loss)
 
         # Balance losses if balancer is available
         # Balance losses if balancer is available (only during training)
-        if self.balancer is not None and len(computed_losses) > 1 and self.training:
+        if self.balancer is not None and len(weighted_losses) > 1 and self.training:
             # Update balancer weights
             shared_params = list(self.encoders.parameters())
             loss_weights = self.balancer.update_weights(
-                computed_losses,
+                weighted_losses,
                 shared_parameters=shared_params
             )
             
             # Compute weighted total loss
-            total_loss = sum(loss_weights.get(name, 0.0) * loss_val 
-                        for name, loss_val in computed_losses.items())
+            total_loss = sum(
+                loss_weights.get(name, 0.0) * loss_val
+                for name, loss_val in weighted_losses.items()
+            )
             
             return {
                 'total_loss': total_loss,
                 'loss_weights': loss_weights,
-                **computed_losses,
+                **raw_losses,
                 **loss_components
             }
         else:
             # Simple sum for validation or when no balancer
-            if computed_losses:
-                total_loss = sum(computed_losses.values())
+            if weighted_losses:
+                weighted_list = list(weighted_losses.values())
+                if len(weighted_list) == 1:
+                    total_loss = weighted_list[0]
+                else:
+                    total_loss = torch.stack(weighted_list).sum()
             else:
                 # Ensure device consistency for empty loss
                 device = next(self.parameters()).device
@@ -617,7 +635,7 @@ class CausalAwareModel(nn.Module):
             
             return {
                 'total_loss': total_loss,
-                **computed_losses,
+                **raw_losses,
                 **loss_components
             }
     

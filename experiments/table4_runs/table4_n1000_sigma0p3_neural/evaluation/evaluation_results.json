@@ -1,0 +1,143 @@
+{
+  "scenario": "IM",
+  "metrics": {
+    "CIP": {
+      "cip_score": 1.0,
+      "p_value": 0.375370772801768,
+      "correlation": 0.0895937979221344,
+      "n_samples": 100
+    },
+    "CSI": {
+      "csi_score": 1.0,
+      "csi_score_rf": 1.0,
+      "r2_mediated_rf": 0.02600040411670178,
+      "r2_direct_rf": 0.0769227660939903,
+      "r2_m_only_rf": 0.9950370011920736,
+      "structure_preference_rf": -0.05092236197728853,
+      "r2_perm_rf": -0.22168210021069648,
+      "csi_score_linear": 1.0,
+      "r2_mediated_linear": -116.85926310221355,
+      "r2_direct_linear": -102.71492513020833,
+      "r2_m_only_linear": 0.9737343986829122,
+      "structure_preference_linear": -14.144337972005218,
+      "r2_perm_linear": -724.5906914605035,
+      "features_T": 64,
+      "features_M": 64,
+      "features_Y": 64,
+      "n_samples": 100,
+      "cv_splits": 3,
+      "perm_samples": 3
+    },
+    "MBRI": {
+      "mbri_score": 0.5715751070505942,
+      "mi_m_y": 0.5956877866004899,
+      "mi_t_y": 0.4464985744511124,
+      "boundary_strength": 1.3341314112625422
+    },
+    "MAC": {
+      "mac_score": 0.5088582707049965,
+      "correlation": 0.5088582707049965,
+      "p_value": 0.0,
+      "n_pairs": 4950
+    },
+    "RIC": {
+      "treatment": 0.5588966881126906,
+      "mi_treatment": 1.0961312752095556,
+      "h_treatment": 1.9612413044028907,
+      "mediator": 0.3740981067058432,
+      "mi_mediator": 0.7446712084851794,
+      "h_mediator": 1.9905773148692791,
+      "outcome": 0.31602179929432345,
+      "mi_outcome": 0.679635999003634,
+      "h_outcome": 2.150598463020725,
+      "ric_score": 0.41633886470428577,
+      "ric_components": 3
+    },
+    "PSR": {
+      "psr_score": 0.12608060807089466,
+      "interaction_information": 0.07380322395159133,
+      "mi_t_y": 0.5853653871187872,
+      "h_t": 1.9612413044028907,
+      "h_m": 1.9905773148692791,
+      "h_y": 2.150598463020725
+    },
+    "MNI": {
+      "mni_score": 1.0,
+      "mi_total": 0.11459342275216236,
+      "mi_conditional": 0.0,
+      "mi_joint": 0.6010715170842212,
+      "mi_mediator": 1.08754961141628
+    }
+  },
+  "summary": {
+    "main_scores": {
+      "CIP": 1.0,
+      "CSI": 1.0,
+      "MBRI": 0.5715751070505942,
+      "MAC": 0.5088582707049965,
+      "RIC": 0.41633886470428577,
+      "PSR": 0.12608060807089466,
+      "MNI": 1.0
+    },
+    "overall_score": 0.6604075500758244,
+    "representation_quality": {
+      "z_T": {
+        "mean_norm": 4.961981296539307,
+        "std_norm": 2.7193057537078857,
+        "mean_activation": -0.004640169441699982,
+        "std_activation": 0.7072669863700867
+      },
+      "z_M": {
+        "mean_norm": 16.475419998168945,
+        "std_norm": 25.47190284729004,
+        "mean_activation": -0.1116764172911644,
+        "std_activation": 3.79032301902771
+      },
+      "z_Y": {
+        "mean_norm": 3.5263166427612305,
+        "std_norm": 5.543368816375732,
+        "mean_activation": 0.15234196186065674,
+        "std_activation": 0.8069863319396973
+      }
+    }
+  },
+  "representation_shapes": {
+    "z_T": [
+      100,
+      64
+    ],
+    "z_M": [
+      100,
+      64
+    ],
+    "z_Y": [
+      100,
+      64
+    ],
+    "T": [
+      100
+    ],
+    "M": [
+      100
+    ],
+    "Y_star": [
+      100
+    ],
+    "a_M": [
+      100
+    ],
+    "a_Y": [
+      100
+    ],
+    "b_style": [
+      100
+    ],
+    "subject_id": [
+      100
+    ],
+    "scenario": [
+      100
+    ]
+  },
+  "n_samples": 100
+}

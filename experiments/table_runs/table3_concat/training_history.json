@@ -1,0 +1,7 @@
+{
+  "train_metrics": {},
+  "val_metrics": {},
+  "best_metric": Infinity,
+  "total_steps": 0,
+  "total_epochs": 10
+}

@@ -3,59 +3,101 @@
   "metrics": {
     "CIP": {
       "cip_score": 1.0,
-      "p_value": 0.09094786907641915,
-      "correlation": 0.0756787980298674,
+      "p_value": 0.05858735871639549,
+      "correlation": 0.0846404880285263,
       "n_samples": 500
     },
     "CSI": {
-      "csi_score": 0.09602916883256124,
-      "r2_mediated": 0.5109377527223761,
-      "r2_direct": 0.4618728250032696,
-      "structure_preference": 0.04906492771910648,
+      "csi_score": 1.0,
+      "csi_score_rf": 1.0,
+      "r2_mediated_rf": 0.1329016787985768,
+      "r2_direct_rf": 0.26086740122605506,
+      "r2_m_only_rf": 0.9985609441604896,
+      "structure_preference_rf": -0.12796572242747825,
+      "r2_perm_rf": -0.0219673470071834,
+      "csi_score_linear": 1.0,
+      "r2_mediated_linear": 0.27098559339841205,
+      "r2_direct_linear": 0.27041230102380115,
+      "r2_m_only_linear": 0.9963104923566183,
+      "structure_preference_linear": 0.0005732923746109009,
+      "r2_perm_linear": 0.2418355850709809,
       "features_T": 64,
       "features_M": 64,
       "features_Y": 64,
-      "n_samples": 500
+      "n_samples": 500,
+      "cv_splits": 3,
+      "perm_samples": 3
     },
     "MBRI": {
-      "mbri_score": 0.7212647246564586,
-      "mi_m_y": 0.6232202322128985,
-      "mi_t_y": 0.24084562834487874,
-      "boundary_strength": 2.587633458906483
+      "mbri_score": 0.7432605859690452,
+      "mi_m_y": 0.6715926976540049,
+      "mi_t_y": 0.23198365618398675,
+      "boundary_strength": 2.8949999312510357
     },
     "MAC": {
-      "mac_score": 0.5181230533812337,
-      "correlation": 0.5181230533812337,
+      "mac_score": 0.5828003174969761,
+      "correlation": 0.5828003174969761,
       "p_value": 0.0,
       "n_pairs": 124750
+    },
+    "RIC": {
+      "treatment": 0.6057037758928728,
+      "mi_treatment": 1.4039304532406969,
+      "h_treatment": 2.317849917831722,
+      "mediator": 0.4161406054673857,
+      "mi_mediator": 0.9553280807640085,
+      "h_mediator": 2.2956857947799443,
+      "outcome": 0.3831033041754573,
+      "mi_outcome": 0.9044296887726727,
+      "h_outcome": 2.360798445443374,
+      "ric_score": 0.4683158951785719,
+      "ric_components": 3
+    },
+    "PSR": {
+      "psr_score": 0.46842821765286774,
+      "interaction_information": 0.20357833642316336,
+      "mi_t_y": 0.43459878963574017,
+      "h_t": 2.317849917831722,
+      "h_m": 2.2956857947799443,
+      "h_y": 2.360798445443374
+    },
+    "MNI": {
+      "mni_score": 1.0,
+      "mi_total": 0.12994001999533794,
+      "mi_conditional": 0.0,
+      "mi_joint": 0.8534247930533462,
+      "mi_mediator": 1.5769094591056554
     }
   },
   "summary": {
     "main_scores": {
       "CIP": 1.0,
-      "CSI": 0.09602916883256124,
-      "MBRI": 0.7212647246564586,
-      "MAC": 0.5181230533812337
+      "CSI": 1.0,
+      "MBRI": 0.7432605859690452,
+      "MAC": 0.5828003174969761,
+      "RIC": 0.4683158951785719,
+      "PSR": 0.46842821765286774,
+      "MNI": 1.0
     },
-    "overall_score": 0.5838542367175634,
+    "overall_score": 0.7518292880424944,
     "representation_quality": {
       "z_T": {
-        "mean_norm": 5.093096733093262,
-        "std_norm": 2.9255073070526123,
-        "mean_activation": -0.013231569901108742,
-        "std_activation": 0.7340705990791321
+        "mean_norm": 5.121129035949707,
+        "std_norm": 2.7617599964141846,
+        "mean_activation": -0.007901972159743309,
+        "std_activation": 0.7272517085075378
       },
       "z_M": {
-        "mean_norm": 745.0361328125,
-        "std_norm": 1030.05908203125,
-        "mean_activation": -6.5328240394592285,
-        "std_activation": 158.77308654785156
+        "mean_norm": 15.846309661865234,
+        "std_norm": 22.743253707885742,
+        "mean_activation": -0.24078448116779327,
+        "std_activation": 3.4565393924713135
       },
       "z_Y": {
-        "mean_norm": 167.00392150878906,
-        "std_norm": 230.21969604492188,
-        "mean_activation": 4.677052021026611,
-        "std_activation": 35.24277877807617
+        "mean_norm": 3.3464243412017822,
+        "std_norm": 4.565457344055176,
+        "mean_activation": 0.14804968237876892,
+        "std_activation": 0.6919081211090088
       }
     }
   },

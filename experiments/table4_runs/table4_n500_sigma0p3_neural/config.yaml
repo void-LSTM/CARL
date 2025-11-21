@@ -1,0 +1,240 @@
+benchmark: false
+data:
+  augmentation: {}
+  batch_size: 16
+  cache_data: false
+  data_dir: csp_synth/generated/n500_sigma0p3_neural
+  dataset_size: 500
+  image_complexity: MNIST-style
+  noise_level: 0.3
+  nonlinearity: neural
+  normalize: true
+  num_workers: 2
+  pin_memory: true
+  preload_data: false
+  random_seed: 42
+  scenario: IM
+  shuffle_train: true
+  standardize: false
+  test_split: 0.1
+  val_split: 0.2
+description: Fast development configuration
+deterministic: true
+device: auto
+evaluation:
+  compare_baselines: false
+  compute_cip: true
+  compute_csi: true
+  compute_mac: true
+  compute_mbri: true
+  detailed_analysis: true
+  n_bootstrap: 1000
+  representation_types:
+  - z_T
+  - z_M
+  - z_Y
+  - z_Y_direct
+  - y_gate
+  save_metrics: true
+  save_plots: true
+  save_representations: true
+  significance_level: 0.05
+grid:
+  data_scales:
+  - 500
+  - 1000
+  - 2000
+  - 5000
+  image_complexities:
+  - MNIST-style
+  - CIFAR-style
+  - Natural
+  noise_levels:
+  - 0.1
+  - 0.3
+  - 0.5
+  nonlinearities:
+  - linear
+  - quadratic
+  - neural
+  seeds:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+model:
+  balancer_config:
+    alpha: 1.5
+    lr: 0.025
+    method: gradnorm
+  baseline_config:
+    align:
+      projection_dim: 64
+      temperature: 0.07
+    autoencoder:
+      concat_sources:
+      - z_T
+      - z_M
+      - z_Y
+      decoder_activation: relu
+      decoder_dropout: 0.1
+      decoder_hidden_dims:
+      - 128
+      - 64
+      decoder_targets:
+      - Y_star
+      decoder_use_batch_norm: true
+      fusion_activation: relu
+      fusion_dropout: 0.1
+      fusion_hidden_dims:
+      - 256
+      - 128
+      fusion_use_batch_norm: true
+    causal_vae:
+      beta: 1.0
+      concat_sources:
+      - z_T
+      - z_M
+      - z_Y
+      latent_dim: 32
+    clip:
+      projection_dim: 64
+      temperature: 0.07
+    dcca:
+      eps: 1.0e-06
+      normalize: true
+      outdim: 10
+      reg1: 0.001
+      reg2: 0.001
+    dear:
+      disentangle_weight: 1.0
+      hidden_dims:
+      - 128
+      - 64
+      reconstruction_weight: 1.0
+    imagebind:
+      temperature: 0.05
+    irm:
+      hidden_dims:
+      - 128
+      - 64
+      irm_lambda: 1.0
+      loss_type: mse
+    predictor:
+      activation: relu
+      dropout: 0.1
+      hidden_dims:
+      - 128
+      - 64
+      use_batch_norm: true
+  encoder_config:
+    hidden_dims:
+    - 128
+    - 64
+    y_fusion:
+      direct_dropout: 0.3
+      direct_scale: 0.2
+      enabled: true
+      force_mediator: false
+      gate_sharpness: 4.0
+      mediator_scale: 1.4
+  feature_dims: null
+  loss_config:
+    adv_t:
+      alpha: 1.0
+      enabled: true
+      weight: 0.3
+    align:
+      enabled: true
+      weight: 0.5
+    ci:
+      detach_zm: false
+      enabled: true
+      weight: 2.0
+    decor:
+      enabled: true
+      weight: 1.0
+    ib:
+      enabled: false
+      weight: 0.1
+    mac:
+      enabled: true
+      weight: 0.4
+    mbr:
+      enabled: true
+      weight: 1.2
+    style:
+      enabled: false
+      weight: 0.1
+  model_id: carl_full
+  phase_config:
+    full:
+      enabled_losses:
+      - ci
+      - mbr
+      - mac
+      - align
+      - decor
+      - adv_t
+      epochs:
+      - 8
+      - .inf
+    mediator_release_epoch: 3
+    mediator_release_settings:
+      direct_scale: 0.4
+      force_mediator: false
+    warmup1_epochs: 5
+    warmup1_losses:
+    - mac
+    - align
+    warmup2_epochs: 30
+    warmup2_losses:
+    - ci
+    - mbr
+    - mac
+    - align
+  scenario: IM
+  z_dim: 64
+name: table4_n500_sigma0p3_neural
+output_dir: experiments/table4_runs/table4_n500_sigma0p3_neural
+random_seed: 42
+run:
+  encoder_tag: shared_default
+  extra_params: {}
+  model_id: carl_full
+  notes: baseline sanity configuration
+  variant: full
+tags: []
+training:
+  accumulate_grad_batches: 1
+  check_val_every_n_epoch: 1
+  early_stopping_metric: val_total_loss
+  early_stopping_mode: min
+  early_stopping_patience: 15
+  gradient_clip_algorithm: norm
+  gradient_clip_val: 5.0
+  learning_rate: 0.001
+  log_every_n_steps: 5
+  max_epochs: 3
+  optimizer: adamw
+  optimizer_config:
+    betas:
+    - 0.9
+    - 0.999
+    eps: 1.0e-08
+  save_every_n_epochs: 5
+  scheduler: cosine_warmup_restarts
+  scheduler_config:
+    cycle_mult: 1.0
+    first_cycle_steps: 50
+    min_lr: 1.0e-06
+    warmup_epochs: 10
+  use_amp: false
+  val_check_interval: 1.0
+  weight_decay: 0.0001

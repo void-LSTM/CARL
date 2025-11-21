@@ -17,7 +17,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 try:
     from cspsol.config.manager import ConfigManager, ExperimentConfig
     from cspsol.data.datamodule import CSPDataModule
-    from cspsol.models.carl import CausalAwareModel
+    from cspsol.models.registry import (
+        build_registered_model,
+        list_registered_models,
+    )
     from cspsol.train.loop import CSPTrainer
     from cspsol.train.callbacks import (
         EarlyStopping, ModelCheckpoint, MetricsLogger, 
@@ -70,8 +73,59 @@ def parse_arguments():
         default='IM',
         help='Training scenario (auto-detect if not specified)'
     )
-    
+
+    parser.add_argument(
+        '--dataset-size',
+        type=int,
+        default=None,
+        help='Number of training samples to use (None keeps full dataset)'
+    )
+
+    parser.add_argument(
+        '--noise-level',
+        type=float,
+        default=None,
+        help='Noise level for synthetic dataset generation'
+    )
+
+    parser.add_argument(
+        '--nonlinearity',
+        type=str,
+        choices=['linear', 'quadratic', 'neural'],
+        default=None,
+        help='Nonlinearity type for synthetic generation'
+    )
+
+    parser.add_argument(
+        '--image-complexity',
+        type=str,
+        choices=['MNIST-style', 'CIFAR-style', 'Natural'],
+        default=None,
+        help='Image complexity level for synthetic generation'
+    )
+
     # Model arguments
+    parser.add_argument(
+        '--model-id',
+        type=str,
+        default=None,
+        help='Identifier of the model to instantiate from the registry'
+    )
+
+    parser.add_argument(
+        '--variant',
+        type=str,
+        default=None,
+        help='Model variant identifier (e.g., ablations)'
+    )
+
+    parser.add_argument(
+        '--encoder-tag',
+        type=str,
+        default=None,
+        help='Shared encoder configuration tag for fairness comparisons'
+    )
+
     parser.add_argument(
         '--z-dim',
         type=int,
@@ -267,7 +321,29 @@ def create_experiment_config(args):
     if args.scenario and args.scenario != 'IM':  # Only override if different from default
         overrides['data.scenario'] = args.scenario
         overrides['model.scenario'] = args.scenario
-    
+
+    if args.model_id:
+        overrides['run.model_id'] = str(args.model_id)
+        overrides['model.model_id'] = str(args.model_id)
+
+    if args.variant:
+        overrides['run.variant'] = str(args.variant)
+
+    if args.encoder_tag:
+        overrides['run.encoder_tag'] = str(args.encoder_tag)
+
+    if args.dataset_size is not None:
+        overrides['data.dataset_size'] = int(args.dataset_size)
+
+    if args.noise_level is not None:
+        overrides['data.noise_level'] = float(args.noise_level)
+
+    if args.nonlinearity is not None:
+        overrides['data.nonlinearity'] = str(args.nonlinearity)
+
+    if args.image_complexity is not None:
+        overrides['data.image_complexity'] = str(args.image_complexity)
+
     if args.z_dim != 128:  # Only override if different from default
         overrides['model.z_dim'] = int(args.z_dim)
     
@@ -304,6 +380,10 @@ def create_experiment_config(args):
     
     # Set device - ensure it's a string
     config.device = str(args.device)
+
+    if args.seed is not None:
+        config.random_seed = int(args.seed)
+        config.data.random_seed = int(args.seed)
     
     if not config_loaded:
         try:
@@ -345,39 +425,72 @@ def setup_data_module(config, args):
 
 
 def setup_model(config, feature_dims, args):
-    """Setup CARL model with proper type conversion."""
-    print("Setting up CARL model...")
-    
+    """Setup model instance with proper type conversion."""
+    print("Setting up model using registry...")
+
+    run_config = getattr(config, 'run', None)
+    model_id = None
+    if run_config is not None:
+        model_id = getattr(run_config, 'model_id', None)
+    if not model_id:
+        model_id = getattr(config.model, 'model_id', None)
+    if not model_id:
+        model_id = 'carl_full'
+
+    device_str = str(getattr(config, 'device', 'auto'))
+    device = torch.device(
+        device_str
+        if device_str != 'auto'
+        else 'cuda' if torch.cuda.is_available() else 'cpu'
+    )
+
+    # Persist detected feature dimensions for downstream logging
     try:
-        # Ensure all parameters are properly typed
-        model = CausalAwareModel(
-            scenario=str(getattr(config.model, 'scenario', 'IM')),
-            z_dim=int(getattr(config.model, 'z_dim', 128)),
+        config.model.feature_dims = feature_dims
+    except Exception:
+        pass
+
+    try:
+        config.model.model_id = model_id
+    except Exception:
+        pass
+
+    overrides = {}
+    if run_config is not None:
+        extra_params = getattr(run_config, 'extra_params', None)
+        if isinstance(extra_params, dict):
+            overrides.update(extra_params)
+
+    if run_config is not None and getattr(run_config, 'encoder_tag', None):
+        print(f"Using shared encoder tag: {run_config.encoder_tag}")
+    print(f"Model ID: {model_id}")
+
+    try:
+        model = build_registered_model(
+            model_id,
+            model_config=config.model,
             feature_dims=feature_dims,
-            loss_config=getattr(config.model, 'loss_config', {}),
-            encoder_config=getattr(config.model, 'encoder_config', {}),
-            balancer_config=getattr(config.model, 'balancer_config', {}),
-            training_phases=getattr(config.model, 'phase_config', {})
+            run_config=run_config,
+            overrides=overrides or None,
+            device=device,
         )
-        
-        # Move to device
-        device_str = str(getattr(config, 'device', 'auto'))
-        device = torch.device(device_str if device_str != 'auto' 
-                            else 'cuda' if torch.cuda.is_available() else 'cpu')
-        model = model.to(device)
-        
-        param_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(f"Model created with {param_count:,} trainable parameters")
-        print(f"Device: {device}")
-        
-        return model, device
-        
+    except KeyError as exc:
+        available = ', '.join(list_registered_models()) or '<none>'
+        raise ValueError(
+            f"Unknown model_id '{model_id}'. Available models: {available}"
+        ) from exc
     except Exception as e:
-        print(f"Failed to create model: {e}")
+        print(f"Failed to create model '{model_id}': {e}")
         print(f"Config model attributes: {dir(config.model)}")
         if hasattr(config.model, '__dict__'):
             print(f"Config model values: {config.model.__dict__}")
         raise
+
+    param_count = sum(p.numel() for p in model.parameters() if getattr(p, 'requires_grad', False))
+    print(f"Model created with {param_count:,} trainable parameters")
+    print(f"Device: {device}")
+
+    return model, device
 
 
 def setup_callbacks(config, args):

@@ -1,0 +1,21 @@
+# Core scientific stack
+numpy
+scipy
+scikit-learn
+scikit-image
+pyyaml
+tqdm
+
+# Visualization and data handling
+matplotlib
+seaborn
+Pillow
+
+# Deep learning (install matching your hardware; see PyTorch site for wheels)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Optional: CI/MI tests used in cspbench
+tigramite>=5.2.0
+hyppo>=0.5.0
+causallearn>=0.1.0

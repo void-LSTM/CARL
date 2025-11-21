@@ -366,31 +366,36 @@ class CSPTrainer:
                           dynamic_ncols=True, disable=disable_tqdm)
 
         # Training loop
+        pending_microbatches = 0
+        total_batches = len(train_loader)
         for batch_idx, batch in train_pbar:
-            # Zero gradients
-            if batch_idx % self.accumulate_grad_batches == 0:
+            if pending_microbatches == 0:
                 self.optimizer.zero_grad()
-            
-            # Forward pass
+
             try:
                 outputs = self._forward_step(batch, epoch)
                 loss = outputs['total_loss']
-                
-                # Scale loss for gradient accumulation
-                loss = loss / self.accumulate_grad_batches
-                
-                # Backward pass
+
+                pending_microbatches += 1
+                if self.accumulate_grad_batches > 1:
+                    remaining_after_current = total_batches - (batch_idx + 1)
+                    remaining_slots = self.accumulate_grad_batches - pending_microbatches
+                    if remaining_slots <= 0:
+                        window_size = self.accumulate_grad_batches
+                    else:
+                        window_size = pending_microbatches + min(remaining_after_current, remaining_slots)
+                else:
+                    window_size = 1
+
+                loss = loss / window_size
                 self._backward_step(loss)
-                
-                # Optimizer step
-                if (batch_idx + 1) % self.accumulate_grad_batches == 0:
+
+                if pending_microbatches == self.accumulate_grad_batches:
                     self._optimizer_step()
-                    
-                    # Update model step
                     self.model.update_step(self.current_step)
                     self.current_step += 1
-                
-                # Collect metrics
+                    pending_microbatches = 0
+
                 has_diff_loss = any(
                     torch.is_tensor(v) and v.requires_grad for v in outputs.values()
                 )
@@ -402,11 +407,10 @@ class CSPTrainer:
                         continue
                     if torch.is_tensor(value) and value.dim() == 0:
                         epoch_metrics[f'train_{key}'].append(value.item())
-                
-                # Log progress
+
                 if batch_idx % self.training_config['log_every_n_steps'] == 0:
                     current_lr = self.optimizer.param_groups[0]['lr']
-                    display_loss = loss.detach().item() * self.accumulate_grad_batches
+                    display_loss = loss.detach().item() * window_size
                     postfix = {'loss': f"{display_loss:.4f}", 'lr': f"{current_lr:.2e}"}
                     if 'loss_weights' in outputs:
                         for name, value in outputs['loss_weights'].items():
@@ -417,9 +421,17 @@ class CSPTrainer:
                 train_pbar.write(f"Error in training step {batch_idx}: {e}")
                 import traceback
                 traceback.print_exc()
+                pending_microbatches = 0
+                self.optimizer.zero_grad()
                 continue
 
         train_pbar.close()
+
+        if pending_microbatches > 0:
+            self._optimizer_step()
+            self.model.update_step(self.current_step)
+            self.current_step += 1
+            self.optimizer.zero_grad()
         
         # Compute epoch averages
         epoch_avg = {}

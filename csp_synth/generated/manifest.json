@@ -1,0 +1,218 @@
+{
+  "n500_sigma0p3_quadratic": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n500_sigma0p3_quadratic",
+    "n_samples": 500,
+    "noise": 0.3,
+    "nonlinearity": "quadratic"
+  },
+  "n1000_sigma0p3_quadratic": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n1000_sigma0p3_quadratic",
+    "n_samples": 1000,
+    "noise": 0.3,
+    "nonlinearity": "quadratic"
+  },
+  "n2000_sigma0p3_quadratic": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n2000_sigma0p3_quadratic",
+    "n_samples": 2000,
+    "noise": 0.3,
+    "nonlinearity": "quadratic"
+  },
+  "n5000_sigma0p3_quadratic": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n5000_sigma0p3_quadratic",
+    "n_samples": 5000,
+    "noise": 0.3,
+    "nonlinearity": "quadratic"
+  },
+  "n2000_sigma0p1_quadratic": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n2000_sigma0p1_quadratic",
+    "n_samples": 2000,
+    "noise": 0.1,
+    "nonlinearity": "quadratic"
+  },
+  "n2000_sigma0p5_quadratic": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n2000_sigma0p5_quadratic",
+    "n_samples": 2000,
+    "noise": 0.5,
+    "nonlinearity": "quadratic"
+  },
+  "n500_sigma0p1_linear": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n500_sigma0p1_linear",
+    "n_samples": 500,
+    "noise": 0.1,
+    "nonlinearity": "linear"
+  },
+  "n500_sigma0p1_quadratic": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n500_sigma0p1_quadratic",
+    "n_samples": 500,
+    "noise": 0.1,
+    "nonlinearity": "quadratic"
+  },
+  "n500_sigma0p1_neural": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n500_sigma0p1_neural",
+    "n_samples": 500,
+    "noise": 0.1,
+    "nonlinearity": "neural"
+  },
+  "n500_sigma0p3_linear": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n500_sigma0p3_linear",
+    "n_samples": 500,
+    "noise": 0.3,
+    "nonlinearity": "linear"
+  },
+  "n500_sigma0p3_neural": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n500_sigma0p3_neural",
+    "n_samples": 500,
+    "noise": 0.3,
+    "nonlinearity": "neural"
+  },
+  "n500_sigma0p5_linear": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n500_sigma0p5_linear",
+    "n_samples": 500,
+    "noise": 0.5,
+    "nonlinearity": "linear"
+  },
+  "n500_sigma0p5_quadratic": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n500_sigma0p5_quadratic",
+    "n_samples": 500,
+    "noise": 0.5,
+    "nonlinearity": "quadratic"
+  },
+  "n500_sigma0p5_neural": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n500_sigma0p5_neural",
+    "n_samples": 500,
+    "noise": 0.5,
+    "nonlinearity": "neural"
+  },
+  "n1000_sigma0p1_linear": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n1000_sigma0p1_linear",
+    "n_samples": 1000,
+    "noise": 0.1,
+    "nonlinearity": "linear"
+  },
+  "n1000_sigma0p1_quadratic": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n1000_sigma0p1_quadratic",
+    "n_samples": 1000,
+    "noise": 0.1,
+    "nonlinearity": "quadratic"
+  },
+  "n1000_sigma0p1_neural": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n1000_sigma0p1_neural",
+    "n_samples": 1000,
+    "noise": 0.1,
+    "nonlinearity": "neural"
+  },
+  "n1000_sigma0p3_linear": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n1000_sigma0p3_linear",
+    "n_samples": 1000,
+    "noise": 0.3,
+    "nonlinearity": "linear"
+  },
+  "n1000_sigma0p3_neural": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n1000_sigma0p3_neural",
+    "n_samples": 1000,
+    "noise": 0.3,
+    "nonlinearity": "neural"
+  },
+  "n1000_sigma0p5_linear": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n1000_sigma0p5_linear",
+    "n_samples": 1000,
+    "noise": 0.5,
+    "nonlinearity": "linear"
+  },
+  "n1000_sigma0p5_quadratic": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n1000_sigma0p5_quadratic",
+    "n_samples": 1000,
+    "noise": 0.5,
+    "nonlinearity": "quadratic"
+  },
+  "n1000_sigma0p5_neural": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n1000_sigma0p5_neural",
+    "n_samples": 1000,
+    "noise": 0.5,
+    "nonlinearity": "neural"
+  },
+  "n2000_sigma0p1_linear": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n2000_sigma0p1_linear",
+    "n_samples": 2000,
+    "noise": 0.1,
+    "nonlinearity": "linear"
+  },
+  "n2000_sigma0p1_neural": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n2000_sigma0p1_neural",
+    "n_samples": 2000,
+    "noise": 0.1,
+    "nonlinearity": "neural"
+  },
+  "n2000_sigma0p3_linear": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n2000_sigma0p3_linear",
+    "n_samples": 2000,
+    "noise": 0.3,
+    "nonlinearity": "linear"
+  },
+  "n2000_sigma0p3_neural": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n2000_sigma0p3_neural",
+    "n_samples": 2000,
+    "noise": 0.3,
+    "nonlinearity": "neural"
+  },
+  "n2000_sigma0p5_linear": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n2000_sigma0p5_linear",
+    "n_samples": 2000,
+    "noise": 0.5,
+    "nonlinearity": "linear"
+  },
+  "n2000_sigma0p5_neural": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n2000_sigma0p5_neural",
+    "n_samples": 2000,
+    "noise": 0.5,
+    "nonlinearity": "neural"
+  },
+  "n5000_sigma0p1_linear": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n5000_sigma0p1_linear",
+    "n_samples": 5000,
+    "noise": 0.1,
+    "nonlinearity": "linear"
+  },
+  "n5000_sigma0p1_quadratic": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n5000_sigma0p1_quadratic",
+    "n_samples": 5000,
+    "noise": 0.1,
+    "nonlinearity": "quadratic"
+  },
+  "n5000_sigma0p1_neural": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n5000_sigma0p1_neural",
+    "n_samples": 5000,
+    "noise": 0.1,
+    "nonlinearity": "neural"
+  },
+  "n5000_sigma0p3_linear": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n5000_sigma0p3_linear",
+    "n_samples": 5000,
+    "noise": 0.3,
+    "nonlinearity": "linear"
+  },
+  "n5000_sigma0p3_neural": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n5000_sigma0p3_neural",
+    "n_samples": 5000,
+    "noise": 0.3,
+    "nonlinearity": "neural"
+  },
+  "n5000_sigma0p5_linear": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n5000_sigma0p5_linear",
+    "n_samples": 5000,
+    "noise": 0.5,
+    "nonlinearity": "linear"
+  },
+  "n5000_sigma0p5_quadratic": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n5000_sigma0p5_quadratic",
+    "n_samples": 5000,
+    "noise": 0.5,
+    "nonlinearity": "quadratic"
+  },
+  "n5000_sigma0p5_neural": {
+    "path": "/Volumes/Yulong/ICLR/csp_synth/generated/n5000_sigma0p5_neural",
+    "n_samples": 5000,
+    "noise": 0.5,
+    "nonlinearity": "neural"
+  }
+}
